@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum PartStatus {
+  draft
+  active
+  inactive
+}
+
+enum AttachmentStyle {
+  comb
+  clip
+  tiara
+}
+
+enum StyleCategory {
+  wa // 和装
+  yo // 洋装
+}
+
+enum HairState {
+  up
+  down
+}
+
+enum PreviewStatus {
+  pending_review
+  approved
+  rejected
+  failed
+}
+
+enum CompositeStatus {
+  ready
+  failed
+}
+
+enum OrderStatus {
+  pending
+  paid
+  fulfilled
+  cancelled
+}
+
+model Part {
+  id              String          @id @default(cuid())
+  slug            String          @unique
+  name            String
+  description     String?
+  sizeNote        String?
+  addOnPriceJpy   Int
+  attachmentStyle AttachmentStyle
+  displayCategory String? // 種類（お花/リボン/リーフ等）。絞り込みフィルターに使用
+  color           String? // カラー（ゴールド/シルバー等）。絞り込みフィルターに使用
+  cutoutImageUrl  String
+  sizeReferenceImageUrl String? // 硬貨等と一緒に撮った縮尺参照用の写真。AI合成にのみ使用し、お客様には表示しない
+  status          PartStatus      @default(draft)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  soloPreviews    PartSoloPreview[]
+  orderItemParts  OrderItemPart[]
+}
+
+model ModelBasePhoto {
+  id                         String            @id @default(cuid())
+  label                      String
+  imageUrl                   String
+  styleCategory              StyleCategory
+  hairState                  HairState
+  attachmentZone             String
+  compatibleAttachmentStyles AttachmentStyle[]
+  active                     Boolean           @default(true)
+  createdAt                  DateTime          @default(now())
+
+  soloPreviews     PartSoloPreview[]
+  composites       GeneratedComposite[]
+  pendingCheckouts PendingCheckout[]
+  orderItems       OrderItem[]
+}
+
+// 管理者QA代替: パーツ単体をベース写真に合成してレビュー・承認してから active にする。
+// 組み合わせ数が無限のため「組み合わせごとのレビュー」は不可能 → 個々のパーツ単体の品質だけ事前確認する。
+model PartSoloPreview {
+  id            String         @id @default(cuid())
+  partId        String
+  part          Part           @relation(fields: [partId], references: [id], onDelete: Cascade)
+  basePhotoId   String
+  basePhoto     ModelBasePhoto @relation(fields: [basePhotoId], references: [id], onDelete: Cascade)
+  imageUrl      String?
+  status        PreviewStatus  @default(pending_review)
+  promptVersion String
+  errorMessage  String?
+  generatedAt   DateTime       @default(now())
+
+  @@unique([partId, basePhotoId])
+}
+
+// お客様の操作でその場生成される、複数パーツの組み合わせ結果。人間レビューなしで即座に表示される。
+// 同一組み合わせ（sortedPartIds + basePhotoId）はキャッシュして使い回す。
+model GeneratedComposite {
+  id             String          @id @default(cuid())
+  basePhotoId    String
+  basePhoto      ModelBasePhoto  @relation(fields: [basePhotoId], references: [id], onDelete: Cascade)
+  combinationKey String          @unique // sha256(`${basePhotoId}:${sortedPartIds.join(",")}`)
+  partIds        String[]
+  imageUrl       String?
+  status         CompositeStatus @default(ready)
+  promptVersion  String
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  lastServedAt   DateTime        @default(now())
+
+  pendingCheckouts PendingCheckout[]
+  orderItems       OrderItem[]
+}
+
+// ベース価格（基本料金）を管理画面から編集できるようにするための単一行設定
+model StoreSetting {
+  id           Int      @id @default(1)
+  basePriceJpy Int
+  updatedAt    DateTime @updatedAt
+}
+
+// Stripe metadataの500文字制限を回避するための橋渡し。組み合わせ全体はここに保存し、Stripeにはこの行のidだけを渡す。
+model PendingCheckout {
+  id            String              @id @default(cuid())
+  basePhotoId   String
+  basePhoto     ModelBasePhoto      @relation(fields: [basePhotoId], references: [id])
+  compositeId   String?
+  composite     GeneratedComposite? @relation(fields: [compositeId], references: [id])
+  partIds       String[]
+  partsSnapshot Json // [{partId, name, addOnPriceJpy}]
+  basePriceJpy  Int
+  totalPriceJpy Int
+  createdAt     DateTime            @default(now())
+  consumedAt    DateTime?
+
+  orders Order[]
+}
+
+// コスト対策: 1IP・1日あたりのGemini実呼び出し（キャッシュヒットは含まない）回数を記録
+model GenerationAttempt {
+  id         String @id @default(cuid())
+  ipHash     String
+  day        String // "2026-07-16" 形式
+  count      Int    @default(0)
+  bonusLimit Int    @default(0) // 追加クレジット購入分。実質上限 = DAILY_GENERATION_LIMIT + bonusLimit
+
+  @@unique([ipHash, day])
+}
+
+// ¥300で+10回のような追加クレジット購入の記録。stripeCheckoutSessionIdの一意制約でWebhookの重複処理を防ぐ。
+model GenerationCreditPurchase {
+  id                      String   @id @default(cuid())
+  stripeCheckoutSessionId String   @unique
+  ipHash                  String
+  day                     String
+  creditsGranted          Int
+  createdAt               DateTime @default(now())
+}
+
+// プレビュー生成前にメールアドレス入力を必須にすることで、冷やかしアクセスを減らしつつ見込み客の連絡先を集める
+model PreviewLead {
+  id        String   @id @default(cuid())
+  email     String
+  ipHash    String
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id                      String           @id @default(cuid())
+  stripeCheckoutSessionId String           @unique
+  pendingCheckoutId       String?
+  pendingCheckout         PendingCheckout? @relation(fields: [pendingCheckoutId], references: [id])
+  customerEmail           String
+  shippingAddress         Json
+  status                  OrderStatus      @default(pending)
+  totalAmountJpy          Int
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  items OrderItem[]
+}
+
+model OrderItem {
+  id                String              @id @default(cuid())
+  orderId           String
+  order             Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  basePhotoId       String?
+  basePhoto         ModelBasePhoto?     @relation(fields: [basePhotoId], references: [id])
+  compositeId       String?
+  composite         GeneratedComposite? @relation(fields: [compositeId], references: [id], onDelete: SetNull)
+  compositeImageUrl String?
+  basePriceJpy      Int
+  unitPriceJpy      Int
+  quantity          Int                 @default(1)
+
+  parts OrderItemPart[]
+}
+
+// 注文ごとの構成パーツをJSONでなく中間テーブルで持つ（参照整合性・集計のしやすさのため）
+model OrderItemPart {
+  id                    String    @id @default(cuid())
+  orderItemId           String
+  orderItem             OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  partId                String
+  part                  Part      @relation(fields: [partId], references: [id])
+  partNameSnapshot      String
+  addOnPriceJpySnapshot Int
+
+  @@unique([orderItemId, partId])
+}
