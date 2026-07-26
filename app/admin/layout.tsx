@@ -1,6 +1,10 @@
 import Link from "next/link";
 import LogoutButton from "./LogoutButton";
 
+// Admin pages read live DB data per-request and sit behind session auth;
+// they must never be statically prerendered at build time.
+export const dynamic = "force-dynamic";
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-neutral-50">
