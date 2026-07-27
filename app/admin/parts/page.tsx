@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import DeletePartButton from "./DeletePartButton";
 
 export const dynamic = "force-dynamic";
 
@@ -30,20 +31,19 @@ export default async function AdminPartsPage() {
         {parts.map((p) => {
           const approved = p.soloPreviews.filter((pv) => pv.status === "approved").length;
           return (
-            <Link
-              key={p.id}
-              href={`/admin/parts/${p.id}`}
-              className="flex items-center justify-between px-4 py-3 hover:bg-neutral-50"
-            >
-              <div>
+            <div key={p.id} className="flex items-center justify-between px-4 py-3 hover:bg-neutral-50">
+              <Link href={`/admin/parts/${p.id}`} className="min-w-0 flex-1">
                 <p className="text-sm font-medium">{p.name}</p>
                 <p className="text-xs text-neutral-500">
                   {ATTACHMENT_LABEL[p.attachmentStyle]} / ＋¥{p.addOnPriceJpy.toLocaleString()} / 承認済み {approved}件
                   {p.displayCategory ? ` / ${p.displayCategory}` : ""}
                 </p>
+              </Link>
+              <div className="flex items-center gap-2">
+                <span className={`rounded px-2 py-1 text-xs ${STATUS_COLOR[p.status]}`}>{STATUS_LABEL[p.status]}</span>
+                <DeletePartButton partId={p.id} partName={p.name} />
               </div>
-              <span className={`rounded px-2 py-1 text-xs ${STATUS_COLOR[p.status]}`}>{STATUS_LABEL[p.status]}</span>
-            </Link>
+            </div>
           );
         })}
         {parts.length === 0 && <p className="px-4 py-6 text-sm text-neutral-500">まだパーツがありません。</p>}

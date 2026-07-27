@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { generateSoloPreviewsForPart, activatePart, deactivatePart } from "@/lib/actions/parts";
 import { approveSoloPreview, rejectSoloPreview, regenerateSoloPreview } from "@/lib/actions/part-previews";
+import DeletePartButton from "../DeletePartButton";
 
 const STATUS_LABEL: Record<string, string> = {
   pending_review: "未レビュー",
@@ -66,6 +67,7 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
               </button>
             </form>
           )}
+          <DeletePartButton partId={part.id} partName={part.name} />
         </div>
       </div>
 

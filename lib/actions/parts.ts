@@ -169,6 +169,17 @@ export async function deactivatePart(partId: string) {
   revalidatePath("/");
 }
 
+export async function deletePart(partId: string) {
+  const orderCount = await db.orderItemPart.count({ where: { partId } });
+  if (orderCount > 0) {
+    throw new Error("注文実績のあるパーツは削除できません。「無効にする」で非公開にしてください。");
+  }
+
+  await db.part.delete({ where: { id: partId } });
+  revalidatePath("/admin/parts");
+  revalidatePath("/");
+}
+
 export async function updatePart(partId: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
