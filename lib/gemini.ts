@@ -34,6 +34,10 @@ export type CompositeInput = {
   sizeReferenceMimeType?: string;
   exemplarBytes?: Uint8Array;
   exemplarMimeType?: string;
+  // Admin-drawn rough draft (base photo + the cutout pasted at a manually chosen size/position) —
+  // sent as an extra reference image so an admin can directly override AI-guessed scale/placement.
+  layoutBytes?: Uint8Array;
+  layoutMimeType?: string;
 };
 
 export type PartImageInput = {
@@ -125,7 +129,8 @@ async function generateWithRetry(prompt: string, images: ImagePart[], promptVers
 export async function composePreview(input: CompositeInput): Promise<CompositeResult> {
   const hasSizeReference = Boolean(input.sizeReferenceBytes && input.sizeReferenceMimeType);
   const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
-  const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference, hasExemplar);
+  const hasLayout = Boolean(input.layoutBytes && input.layoutMimeType);
+  const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference, hasExemplar, hasLayout);
 
   const images: ImagePart[] = [{ mimeType: input.cutoutMimeType, base64: toBase64(input.cutoutBytes) }];
   if (hasSizeReference) {
@@ -133,6 +138,9 @@ export async function composePreview(input: CompositeInput): Promise<CompositeRe
   }
   if (hasExemplar) {
     images.push({ mimeType: input.exemplarMimeType!, base64: toBase64(input.exemplarBytes!) });
+  }
+  if (hasLayout) {
+    images.push({ mimeType: input.layoutMimeType!, base64: toBase64(input.layoutBytes!) });
   }
   images.push({ mimeType: input.baseMimeType, base64: toBase64(input.baseBytes) });
 

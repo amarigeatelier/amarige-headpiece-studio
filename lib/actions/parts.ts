@@ -88,7 +88,11 @@ export async function generateSoloPreviewsForPart(partId: string) {
   revalidatePath(`/admin/parts/${partId}`);
 }
 
-export async function generateSingleSoloPreview(partId: string, basePhotoId: string) {
+export async function generateSingleSoloPreview(
+  partId: string,
+  basePhotoId: string,
+  layout?: { bytes: Uint8Array; contentType: string }
+) {
   const [part, basePhoto] = await Promise.all([
     db.part.findUniqueOrThrow({ where: { id: partId } }),
     db.modelBasePhoto.findUniqueOrThrow({ where: { id: basePhotoId } }),
@@ -115,6 +119,8 @@ export async function generateSingleSoloPreview(partId: string, basePhotoId: str
       sizeReferenceMimeType: sizeReference?.contentType,
       exemplarBytes: exemplar?.bytes,
       exemplarMimeType: exemplar?.contentType,
+      layoutBytes: layout?.bytes,
+      layoutMimeType: layout?.contentType,
     });
 
     const imageUrl = await uploadImage(soloPreviewImagePath(partId, basePhotoId), result.imageBytes, result.mimeType);

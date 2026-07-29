@@ -3,7 +3,7 @@
  * so GeneratedPreview.promptVersion lets us tell which rows were made with an old prompt
  * and might be worth regenerating.
  */
-export const COMPOSITE_PROMPT_VERSION = "v10";
+export const COMPOSITE_PROMPT_VERSION = "v11";
 
 const SIZE_GUIDANCE_HEADER =
   "参考として、成人女性の頭の横幅（耳から耳まで）はおよそ14〜16cmです。この基準に対して、";
@@ -57,12 +57,14 @@ export function buildCompositePrompt(
   attachmentZone: string,
   sizeNote?: string | null,
   hasSizeReference?: boolean,
-  hasExemplar?: boolean
+  hasExemplar?: boolean,
+  hasLayout?: boolean
 ): string {
   const productImg = 1;
   let next = 2;
   const refImg = hasSizeReference ? next++ : null;
   const exemplarImg = hasExemplar ? next++ : null;
+  const layoutImg = hasLayout ? next++ : null;
   const modelImg = next;
 
   const lines = [
@@ -82,6 +84,13 @@ export function buildCompositePrompt(
 
   if (exemplarImg) {
     lines.push(exemplarInstruction(exemplarImg, modelImg));
+  }
+
+  if (layoutImg) {
+    lines.push(
+      `${layoutImg}枚目の画像は、管理者が実際に生成してほしい大きさ・位置を手動で指定した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
+        `${layoutImg}枚目に示された大きさ・位置を最優先の基準とし、他のサイズ情報（実物サイズやサイズ参考写真）より${layoutImg}枚目の指定を優先してください。位置・大きさはこの下書きに従いつつ、仕上がりだけを写実的で自然なものにしてください。`
+    );
   }
 
   if (sizeNote) {

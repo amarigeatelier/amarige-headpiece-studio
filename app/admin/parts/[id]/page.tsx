@@ -5,6 +5,7 @@ import { generateSoloPreviewsForPart, activatePart, deactivatePart } from "@/lib
 import { approveSoloPreview, rejectSoloPreview, regenerateSoloPreview } from "@/lib/actions/part-previews";
 import DeletePartButton from "../DeletePartButton";
 import SubmitButton from "../../SubmitButton";
+import PartSizer from "../PartSizer";
 
 const STATUS_LABEL: Record<string, string> = {
   pending_review: "未レビュー",
@@ -110,6 +111,13 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
                   </SubmitButton>
                 </form>
               </div>
+              <PartSizer
+                partId={part.id}
+                basePhotoId={preview.basePhotoId}
+                baseImageUrl={preview.basePhoto.imageUrl}
+                cutoutImageUrl={part.cutoutImageUrl}
+                partName={part.name}
+              />
             </div>
           </div>
         ))}
