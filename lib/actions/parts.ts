@@ -95,10 +95,13 @@ export async function generateSingleSoloPreview(partId: string, basePhotoId: str
   ]);
 
   try {
-    const [cutout, base, sizeReference] = await Promise.all([
+    const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
+
+    const [cutout, base, sizeReference, exemplar] = await Promise.all([
       fetchImageBytes(part.cutoutImageUrl),
       fetchImageBytes(basePhoto.imageUrl),
       part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
+      storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
     ]);
 
     const result = await composePreview({
@@ -110,6 +113,8 @@ export async function generateSingleSoloPreview(partId: string, basePhotoId: str
       sizeNote: part.sizeNote,
       sizeReferenceBytes: sizeReference?.bytes,
       sizeReferenceMimeType: sizeReference?.contentType,
+      exemplarBytes: exemplar?.bytes,
+      exemplarMimeType: exemplar?.contentType,
     });
 
     const imageUrl = await uploadImage(soloPreviewImagePath(partId, basePhotoId), result.imageBytes, result.mimeType);

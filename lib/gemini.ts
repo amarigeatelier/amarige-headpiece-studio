@@ -32,6 +32,8 @@ export type CompositeInput = {
   sizeNote?: string | null;
   sizeReferenceBytes?: Uint8Array;
   sizeReferenceMimeType?: string;
+  exemplarBytes?: Uint8Array;
+  exemplarMimeType?: string;
 };
 
 export type PartImageInput = {
@@ -49,6 +51,8 @@ export type MultiCompositeInput = {
   baseBytes: Uint8Array;
   baseMimeType: string;
   attachmentZone: string;
+  exemplarBytes?: Uint8Array;
+  exemplarMimeType?: string;
 };
 
 export type CompositeResult = {
@@ -120,11 +124,15 @@ async function generateWithRetry(prompt: string, images: ImagePart[], promptVers
 /** Composites a single part cutout onto a single base photo — used for admin solo-QA previews. */
 export async function composePreview(input: CompositeInput): Promise<CompositeResult> {
   const hasSizeReference = Boolean(input.sizeReferenceBytes && input.sizeReferenceMimeType);
-  const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference);
+  const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
+  const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference, hasExemplar);
 
   const images: ImagePart[] = [{ mimeType: input.cutoutMimeType, base64: toBase64(input.cutoutBytes) }];
   if (hasSizeReference) {
     images.push({ mimeType: input.sizeReferenceMimeType!, base64: toBase64(input.sizeReferenceBytes!) });
+  }
+  if (hasExemplar) {
+    images.push({ mimeType: input.exemplarMimeType!, base64: toBase64(input.exemplarBytes!) });
   }
   images.push({ mimeType: input.baseMimeType, base64: toBase64(input.baseBytes) });
 
@@ -137,13 +145,15 @@ export async function composeParts(input: MultiCompositeInput): Promise<Composit
     throw new Error(`parts count must be 1..${HARD_SAFETY_LIMIT}`);
   }
 
+  const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
   const prompt = buildMultiPartCompositePrompt(
     input.attachmentZone,
     input.parts.map((p) => ({
       label: p.label,
       sizeNote: p.sizeNote,
       hasSizeReference: Boolean(p.sizeReferenceBytes && p.sizeReferenceMimeType),
-    }))
+    })),
+    hasExemplar
   );
 
   const images: ImagePart[] = [];
@@ -152,6 +162,9 @@ export async function composeParts(input: MultiCompositeInput): Promise<Composit
     if (p.sizeReferenceBytes && p.sizeReferenceMimeType) {
       images.push({ mimeType: p.sizeReferenceMimeType, base64: toBase64(p.sizeReferenceBytes) });
     }
+  }
+  if (hasExemplar) {
+    images.push({ mimeType: input.exemplarMimeType!, base64: toBase64(input.exemplarBytes!) });
   }
   images.push({ mimeType: input.baseMimeType, base64: toBase64(input.baseBytes) });
 

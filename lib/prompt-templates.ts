@@ -3,7 +3,7 @@
  * so GeneratedPreview.promptVersion lets us tell which rows were made with an old prompt
  * and might be worth regenerating.
  */
-export const COMPOSITE_PROMPT_VERSION = "v7";
+export const COMPOSITE_PROMPT_VERSION = "v8";
 
 const SIZE_GUIDANCE_HEADER =
   "参考として、成人女性の頭の横幅（耳から耳まで）はおよそ14〜16cmです。この基準に対して、";
@@ -39,14 +39,31 @@ function describeSizeComparison(sizeNote: string): string | null {
  * scale anchor than a bare cm figure in text, since independent Gemini calls have no shared
  * reference to stay consistent with each other otherwise.
  */
+/**
+ * `hasExemplar` — whether an extra "different accessory correctly scaled on a different model"
+ * completed example image is included. Empirically the single most effective scale anchor:
+ * text cm figures and even a coin reference photo still left results oversized in testing,
+ * but showing Gemini one finished example of "this is what correct looks like" fixed it.
+ */
+function exemplarInstruction(exemplarImg: number, modelImg: number): string {
+  return (
+    `${exemplarImg}枚目の画像は、（今回合成するものとは別の）ヘアアクセサリーを別のモデルの髪に正しい縮尺・自然な配置で装着した「お手本」の完成例です。` +
+    `デザインの違いは無視して構いませんが、アクセサリーと髪全体・頭全体とのサイズ比率、および髪に埋もれるように自然になじんでいる配置感を絶対的な基準にしてください。` +
+    `${exemplarImg}枚目の縮尺感を、${modelImg}枚目のモデルに対しても同じように再現してください。`
+  );
+}
+
 export function buildCompositePrompt(
   attachmentZone: string,
   sizeNote?: string | null,
-  hasSizeReference?: boolean
+  hasSizeReference?: boolean,
+  hasExemplar?: boolean
 ): string {
   const productImg = 1;
-  const refImg = hasSizeReference ? 2 : null;
-  const modelImg = hasSizeReference ? 3 : 2;
+  let next = 2;
+  const refImg = hasSizeReference ? next++ : null;
+  const exemplarImg = hasExemplar ? next++ : null;
+  const modelImg = next;
 
   const lines = [
     `${modelImg}枚目の画像のモデルの頭の「${attachmentZone}」の位置に、${productImg}枚目の画像に写っているヘアアクセサリーを自然に合成してください。`,
@@ -62,6 +79,10 @@ export function buildCompositePrompt(
     );
   }
 
+  if (exemplarImg) {
+    lines.push(exemplarInstruction(exemplarImg, modelImg));
+  }
+
   if (sizeNote) {
     const comparison = describeSizeComparison(sizeNote);
     lines.push(
@@ -70,18 +91,19 @@ export function buildCompositePrompt(
     );
   }
 
-  if (sizeNote || refImg) {
+  if (sizeNote || refImg || exemplarImg) {
     lines.push(SIZE_GUIDANCE_FOOTER_BASE);
   }
 
   return lines.join("\n");
 }
 
-export const MULTI_COMPOSITE_PROMPT_VERSION = "v6";
+export const MULTI_COMPOSITE_PROMPT_VERSION = "v7";
 
 export function buildMultiPartCompositePrompt(
   attachmentZone: string,
-  parts: { label: string; sizeNote?: string | null; hasSizeReference?: boolean }[]
+  parts: { label: string; sizeNote?: string | null; hasSizeReference?: boolean }[],
+  hasExemplar?: boolean
 ): string {
   let n = 1;
   const descriptors: string[] = [];
@@ -105,7 +127,9 @@ export function buildMultiPartCompositePrompt(
       anySizeInfo = true;
     }
   }
-  const modelImg = n; // the base/model photo is always sent last, after every part's image(s)
+
+  const exemplarImg = hasExemplar ? n++ : null;
+  const modelImg = n; // the base/model photo is always sent last, after every part's image(s) and the exemplar (if any)
 
   const lines = [
     `以下の${parts.length}点のヘアアクセサリーパーツ画像（サイズ参考写真を含む場合あり）を、1つのまとまったヘッドアクセサリーとして自然に組み合わせ、`,
@@ -115,9 +139,14 @@ export function buildMultiPartCompositePrompt(
     "サイズ参考写真が含まれる場合、それは実物サイズ把握のためだけに使い、合成結果には含めないでください。指定したヘアアクセサリーパーツを1つも省略・重複させず、すべて画像内に含めてください。",
   ];
 
+  if (exemplarImg) {
+    lines.push(exemplarInstruction(exemplarImg, modelImg));
+    anySizeInfo = true;
+  }
+
   if (anySizeInfo) {
     lines.push(
-      SIZE_GUIDANCE_HEADER + "各パーツに記載した実物サイズ・比較物のサイズ感、およびサイズ参考写真があればそれを正確に守って縮尺を合わせてください。",
+      SIZE_GUIDANCE_HEADER + "各パーツに記載した実物サイズ・比較物のサイズ感、およびサイズ参考写真・お手本画像があればそれを正確に守って縮尺を合わせてください。",
       SIZE_GUIDANCE_FOOTER_BASE
     );
   }

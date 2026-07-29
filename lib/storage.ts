@@ -74,3 +74,10 @@ export function sizeReferenceImagePath(key: string, fileName: string) {
 export function modelPhotoPath(key: string, fileName: string) {
   return `model-photos/${key}/${fileName}`;
 }
+
+// A single admin-curated "correct scale looks like this" completed example, sent as an
+// extra reference image on every generation to anchor how big accessories should read
+// relative to hair — text cm figures and a coin photo alone still undersold this in testing.
+export function scaleExemplarImagePath(key: string, fileName: string) {
+  return `scale-exemplar/${key}/${fileName}`;
+}

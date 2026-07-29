@@ -124,9 +124,10 @@ model GeneratedComposite {
 
 // ベース価格（基本料金）を管理画面から編集できるようにするための単一行設定
 model StoreSetting {
-  id           Int      @id @default(1)
-  basePriceJpy Int
-  updatedAt    DateTime @updatedAt
+  id                    Int      @id @default(1)
+  basePriceJpy          Int
+  scaleExemplarImageUrl String? // 「アクセサリーと髪の正しい縮尺感」をAIに示すお手本完成例。合成時に参考画像として毎回渡す。
+  updatedAt             DateTime @updatedAt
 }
 
 // Stripe metadataの500文字制限を回避するための橋渡し。組み合わせ全体はここに保存し、Stripeにはこの行のidだけを渡す。

@@ -54,7 +54,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [partImages, base] = await Promise.all([
+    const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
+
+    const [partImages, base, exemplar] = await Promise.all([
       Promise.all(
         parts.map(async (part) => {
           const [{ bytes, contentType }, sizeReference] = await Promise.all([
@@ -73,6 +75,7 @@ export async function POST(req: NextRequest) {
         })
       ),
       fetchImageBytes(basePhoto.imageUrl),
+      storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
     ]);
 
     await recordGenerationAttempt(ip);
@@ -82,6 +85,8 @@ export async function POST(req: NextRequest) {
       baseBytes: base.bytes,
       baseMimeType: base.contentType,
       attachmentZone: basePhoto.attachmentZone,
+      exemplarBytes: exemplar?.bytes,
+      exemplarMimeType: exemplar?.contentType,
     });
 
     const imageUrl = await uploadImage(compositeImagePath(combinationKey), result.imageBytes, result.mimeType);
