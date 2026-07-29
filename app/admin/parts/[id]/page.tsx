@@ -76,8 +76,14 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
           <div key={preview.id} className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
             <div className="aspect-[3/4] w-full bg-neutral-100">
               {preview.imageUrl ? (
+                // Cache-bust: the storage path is fixed per (part, basePhoto), so a regenerated
+                // image reuses the same URL — without this, browsers keep showing the old cached image.
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={preview.imageUrl} alt={preview.basePhoto.label} className="h-full w-full object-cover" />
+                <img
+                  src={`${preview.imageUrl}?t=${new Date(preview.generatedAt).getTime()}`}
+                  alt={preview.basePhoto.label}
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-neutral-400">
                   {preview.errorMessage ?? "画像なし"}
