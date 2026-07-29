@@ -100,6 +100,12 @@ model PartSoloPreview {
   errorMessage  String?
   generatedAt   DateTime       @default(now())
 
+  // 手動配置（サイズを調整して再生成）で最後に使った下絵の位置・大きさ。
+  // 次回サイズ調整画面を開いたとき、ゼロからでなくこの値を初期表示するために使う。
+  layoutXPercent     Float?
+  layoutYPercent     Float?
+  layoutWidthPercent Float?
+
   @@unique([partId, basePhotoId])
 }
 

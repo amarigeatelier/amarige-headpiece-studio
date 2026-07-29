@@ -91,7 +91,7 @@ export async function generateSoloPreviewsForPart(partId: string) {
 export async function generateSingleSoloPreview(
   partId: string,
   basePhotoId: string,
-  layout?: { bytes: Uint8Array; contentType: string }
+  layout?: { bytes: Uint8Array; contentType: string; xPercent?: number; yPercent?: number; widthPercent?: number }
 ) {
   const [part, basePhoto] = await Promise.all([
     db.part.findUniqueOrThrow({ where: { id: partId } }),
@@ -125,6 +125,11 @@ export async function generateSingleSoloPreview(
 
     const imageUrl = await uploadImage(soloPreviewImagePath(partId, basePhotoId), result.imageBytes, result.mimeType);
 
+    const layoutPercents =
+      layout?.xPercent !== undefined && layout?.yPercent !== undefined && layout?.widthPercent !== undefined
+        ? { layoutXPercent: layout.xPercent, layoutYPercent: layout.yPercent, layoutWidthPercent: layout.widthPercent }
+        : undefined;
+
     await db.partSoloPreview.upsert({
       where: { partId_basePhotoId: { partId, basePhotoId } },
       create: {
@@ -133,6 +138,7 @@ export async function generateSingleSoloPreview(
         imageUrl,
         status: "pending_review",
         promptVersion: result.promptVersion,
+        ...layoutPercents,
       },
       update: {
         imageUrl,
@@ -140,6 +146,7 @@ export async function generateSingleSoloPreview(
         promptVersion: result.promptVersion,
         errorMessage: null,
         generatedAt: new Date(),
+        ...layoutPercents,
       },
     });
   } catch (err) {

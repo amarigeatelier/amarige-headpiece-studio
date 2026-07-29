@@ -17,6 +17,7 @@ const CLAMP_MIN = 3;
 const CLAMP_MAX = 97;
 const MIN_WIDTH_PERCENT = 5;
 const MAX_WIDTH_PERCENT = 60;
+const DEFAULT_WIDTH_PERCENT = 20;
 
 export default function PartSizer({
   partId,
@@ -24,22 +25,36 @@ export default function PartSizer({
   baseImageUrl,
   cutoutImageUrl,
   partName,
+  initialXPercent,
+  initialYPercent,
+  initialWidthPercent,
 }: {
   partId: string;
   basePhotoId: string;
   baseImageUrl: string;
   cutoutImageUrl: string;
   partName: string;
+  initialXPercent?: number | null;
+  initialYPercent?: number | null;
+  initialWidthPercent?: number | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [xPercent, setXPercent] = useState(50);
-  const [yPercent, setYPercent] = useState(45);
-  const [widthPercent, setWidthPercent] = useState(20);
+  const [xPercent, setXPercent] = useState(initialXPercent ?? 50);
+  const [yPercent, setYPercent] = useState(initialYPercent ?? 45);
+  // widthPercent is the true unit sent to the server: % of the base photo's width.
+  // The UI never shows this number directly — it shows a "% of what's currently displayed"
+  // figure instead (baselineWidthPercent = 100%), since that's the size saki can actually judge by eye.
+  const baselineWidthPercent = initialWidthPercent ?? DEFAULT_WIDTH_PERCENT;
+  const [widthPercent, setWidthPercent] = useState(baselineWidthPercent);
   const [dragMode, setDragMode] = useState<"move" | "resize" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const relativeWidthPercent = Math.round((widthPercent / baselineWidthPercent) * 100);
+  const relativeMin = Math.ceil((MIN_WIDTH_PERCENT / baselineWidthPercent) * 100);
+  const relativeMax = Math.floor((MAX_WIDTH_PERCENT / baselineWidthPercent) * 100);
 
   function handlePointerMove(e: React.PointerEvent) {
     if (!dragMode || !containerRef.current) return;
@@ -53,6 +68,12 @@ export default function PartSizer({
       const percent = (distPx / rect.width) * 100;
       setWidthPercent(Math.min(MAX_WIDTH_PERCENT, Math.max(MIN_WIDTH_PERCENT, percent)));
     }
+  }
+
+  function handleRelativeWidthInput(relativeValue: number) {
+    if (Number.isNaN(relativeValue)) return;
+    const absolute = baselineWidthPercent * (relativeValue / 100);
+    setWidthPercent(Math.min(MAX_WIDTH_PERCENT, Math.max(MIN_WIDTH_PERCENT, absolute)));
   }
 
   function startDrag(e: React.PointerEvent, mode: "move" | "resize") {
@@ -91,7 +112,7 @@ export default function PartSizer({
       const res = await fetch("/api/admin/regenerate-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partId, basePhotoId, layoutImageBase64 }),
+        body: JSON.stringify({ partId, basePhotoId, layoutImageBase64, xPercent, yPercent, widthPercent }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -117,7 +138,10 @@ export default function PartSizer({
   return (
     <div className="mt-2 rounded-lg border border-neutral-300 bg-white p-3">
       <p className="mb-2 text-xs text-neutral-600">
-        {partName}をドラッグで移動、右下のつまみをドラッグで大きさを調整してから「この配置で再生成」を押してください。
+        {partName}をドラッグで移動、大きさは右下のつまみをドラッグするか、下の数値欄で調整してから「この配置で再生成」を押してください。
+        {initialWidthPercent != null
+          ? "下の「大きさ」は今表示されている画像を100%とした割合です。50にすると今の半分の大きさになります。"
+          : "この組み合わせはまだサイズ調整で生成したことがないため、100%は目安のスタート地点です（一度生成すれば、次回からは今の画像を基準に調整できます）。"}
       </p>
       <div
         ref={containerRef}
@@ -151,6 +175,32 @@ export default function PartSizer({
             title="ドラッグで大きさを調整"
           />
         </div>
+      </div>
+
+      <div className="mt-2 flex items-center gap-2 text-xs">
+        <label htmlFor={`width-percent-${partId}-${basePhotoId}`} className="text-neutral-600">
+          大きさ（今の画像を100%として）
+        </label>
+        <input
+          id={`width-percent-${partId}-${basePhotoId}`}
+          type="number"
+          min={relativeMin}
+          max={relativeMax}
+          step={1}
+          value={relativeWidthPercent}
+          onChange={(e) => handleRelativeWidthInput(e.target.valueAsNumber)}
+          className="w-16 rounded border border-neutral-300 px-2 py-1"
+        />
+        <span className="text-neutral-400">%</span>
+        <input
+          type="range"
+          min={relativeMin}
+          max={relativeMax}
+          step={1}
+          value={relativeWidthPercent}
+          onChange={(e) => handleRelativeWidthInput(e.target.valueAsNumber)}
+          className="flex-1"
+        />
       </div>
 
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}

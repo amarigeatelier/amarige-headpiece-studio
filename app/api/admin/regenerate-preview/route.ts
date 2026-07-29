@@ -13,7 +13,7 @@ function parseDataUrl(dataUrl: unknown): { bytes: Uint8Array; contentType: strin
 
 // Auth is already enforced by middleware.ts's matcher on /api/admin/:path*.
 export async function POST(req: NextRequest) {
-  const { partId, basePhotoId, layoutImageBase64 } = await req.json();
+  const { partId, basePhotoId, layoutImageBase64, xPercent, yPercent, widthPercent } = await req.json();
 
   if (typeof partId !== "string" || typeof basePhotoId !== "string") {
     return NextResponse.json({ error: "不正なリクエストです" }, { status: 400 });
@@ -24,7 +24,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "配置下書き画像が不正です" }, { status: 400 });
   }
 
-  await generateSingleSoloPreview(partId, basePhotoId, layout);
+  await generateSingleSoloPreview(partId, basePhotoId, {
+    ...layout,
+    xPercent: typeof xPercent === "number" ? xPercent : undefined,
+    yPercent: typeof yPercent === "number" ? yPercent : undefined,
+    widthPercent: typeof widthPercent === "number" ? widthPercent : undefined,
+  });
   revalidatePath(`/admin/parts/${partId}`);
 
   return NextResponse.json({ ok: true });
