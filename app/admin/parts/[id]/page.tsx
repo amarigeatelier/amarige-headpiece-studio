@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { generateSoloPreviewsForPart, activatePart, deactivatePart } from "@/lib/actions/parts";
 import { approveSoloPreview, rejectSoloPreview, regenerateSoloPreview } from "@/lib/actions/part-previews";
 import DeletePartButton from "../DeletePartButton";
+import SubmitButton from "../../SubmitButton";
 
 const STATUS_LABEL: Record<string, string> = {
   pending_review: "未レビュー",
@@ -46,25 +47,24 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
             編集
           </Link>
           <form action={generateSoloPreviewsForPart.bind(null, part.id)}>
-            <button type="submit" className="rounded border border-neutral-300 px-3 py-2 text-sm">
+            <SubmitButton pendingLabel="生成中..." className="rounded border border-neutral-300 px-3 py-2 text-sm disabled:opacity-40">
               未生成/失敗分を生成
-            </button>
+            </SubmitButton>
           </form>
           {part.status !== "active" ? (
             <form action={activatePart.bind(null, part.id)}>
-              <button
-                type="submit"
+              <SubmitButton
                 disabled={approvedCount === 0}
                 className="rounded bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-40"
               >
                 有効にする（承認済み{approvedCount}件）
-              </button>
+              </SubmitButton>
             </form>
           ) : (
             <form action={deactivatePart.bind(null, part.id)}>
-              <button type="submit" className="rounded border border-red-300 px-3 py-2 text-sm text-red-700">
+              <SubmitButton className="rounded border border-red-300 px-3 py-2 text-sm text-red-700 disabled:opacity-40">
                 無効にする
-              </button>
+              </SubmitButton>
             </form>
           )}
           <DeletePartButton partId={part.id} partName={part.name} />
@@ -91,19 +91,17 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
               </span>
               <div className="mt-2 flex gap-2">
                 <form action={approveSoloPreview.bind(null, preview.id)}>
-                  <button type="submit" className="rounded bg-green-600 px-2 py-1 text-xs text-white">
+                  <SubmitButton className="rounded bg-green-600 px-2 py-1 text-xs text-white disabled:opacity-40">
                     承認
-                  </button>
+                  </SubmitButton>
                 </form>
                 <form action={rejectSoloPreview.bind(null, preview.id)}>
-                  <button type="submit" className="rounded bg-neutral-300 px-2 py-1 text-xs">
-                    却下
-                  </button>
+                  <SubmitButton className="rounded bg-neutral-300 px-2 py-1 text-xs disabled:opacity-40">却下</SubmitButton>
                 </form>
                 <form action={regenerateSoloPreview.bind(null, preview.id)}>
-                  <button type="submit" className="rounded border border-neutral-300 px-2 py-1 text-xs">
+                  <SubmitButton pendingLabel="生成中..." className="rounded border border-neutral-300 px-2 py-1 text-xs disabled:opacity-40">
                     再生成
-                  </button>
+                  </SubmitButton>
                 </form>
               </div>
             </div>
