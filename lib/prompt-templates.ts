@@ -3,7 +3,7 @@
  * so GeneratedPreview.promptVersion lets us tell which rows were made with an old prompt
  * and might be worth regenerating.
  */
-export const COMPOSITE_PROMPT_VERSION = "v6";
+export const COMPOSITE_PROMPT_VERSION = "v7";
 
 const SIZE_GUIDANCE_HEADER =
   "参考として、成人女性の頭の横幅（耳から耳まで）はおよそ14〜16cmです。この基準に対して、";
@@ -53,6 +53,7 @@ export function buildCompositePrompt(
     `${modelImg}枚目の画像の光の向き・色温度・影の柔らかさ・カメラアングルに正確に一致させ、写実的で継ぎ目のない仕上がりにしてください。`,
     "モデルの顔・髪型・肌・背景・衣装は一切変更しないでください。",
     "ヘアアクセサリー以外の物体を追加しないでください。",
+    "コーム・ピン・クリップなどの装着部分（金属や樹脂の土台）は実際に髪へ差し込まれているように毛の中に隠し、見える部分は花やリボンなどの装飾部分のみにしてください。装着部分が髪の上に浮いた状態で見えるのは不自然です。",
   ];
 
   if (refImg) {
@@ -76,7 +77,7 @@ export function buildCompositePrompt(
   return lines.join("\n");
 }
 
-export const MULTI_COMPOSITE_PROMPT_VERSION = "v5";
+export const MULTI_COMPOSITE_PROMPT_VERSION = "v6";
 
 export function buildMultiPartCompositePrompt(
   attachmentZone: string,
@@ -123,7 +124,8 @@ export function buildMultiPartCompositePrompt(
 
   lines.push(
     `画像${modelImg}の光の向き・色温度・影の柔らかさ・カメラアングルに正確に一致させ、写実的で継ぎ目のない仕上がりにしてください。`,
-    "モデルの顔・髪型・肌・背景・衣装は一切変更しないでください。指定したパーツ以外の物体を追加しないでください。"
+    "モデルの顔・髪型・肌・背景・衣装は一切変更しないでください。指定したパーツ以外の物体を追加しないでください。",
+    "コーム・ピン・クリップなどの装着部分（金属や樹脂の土台）は実際に髪へ差し込まれているように毛の中に隠し、見える部分は花やリボンなどの装飾部分のみにしてください。装着部分が髪の上に浮いた状態で見えるのは不自然です。"
   );
 
   return lines.join("\n");
