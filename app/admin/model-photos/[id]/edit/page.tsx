@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { updateModelBasePhoto } from "@/lib/actions/model-photos";
+import AttachmentPositionPicker from "../../AttachmentPositionPicker";
 
 export default async function EditModelPhotoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -80,6 +81,11 @@ export default async function EditModelPhotoPage({ params }: { params: Promise<{
             </label>
           </div>
         </div>
+        <AttachmentPositionPicker
+          imageUrl={photo.imageUrl}
+          initialXPercent={photo.defaultAttachmentXPercent}
+          initialYPercent={photo.defaultAttachmentYPercent}
+        />
         <div>
           <label className="mb-1 block text-sm text-neutral-600">写真を差し替える（任意）</label>
           <input type="file" name="photo" accept="image/*" className="w-full text-sm" />

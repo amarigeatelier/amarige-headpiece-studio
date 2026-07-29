@@ -120,6 +120,8 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
                 initialXPercent={preview.layoutXPercent}
                 initialYPercent={preview.layoutYPercent}
                 initialWidthPercent={preview.layoutWidthPercent}
+                defaultXPercent={preview.basePhoto.defaultAttachmentXPercent}
+                defaultYPercent={preview.basePhoto.defaultAttachmentYPercent}
               />
             </div>
           </div>

@@ -28,6 +28,8 @@ export default function PartSizer({
   initialXPercent,
   initialYPercent,
   initialWidthPercent,
+  defaultXPercent = 50,
+  defaultYPercent = 25,
 }: {
   partId: string;
   basePhotoId: string;
@@ -37,11 +39,13 @@ export default function PartSizer({
   initialXPercent?: number | null;
   initialYPercent?: number | null;
   initialWidthPercent?: number | null;
+  defaultXPercent?: number;
+  defaultYPercent?: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [xPercent, setXPercent] = useState(initialXPercent ?? 50);
-  const [yPercent, setYPercent] = useState(initialYPercent ?? 45);
+  const [xPercent, setXPercent] = useState(initialXPercent ?? defaultXPercent);
+  const [yPercent, setYPercent] = useState(initialYPercent ?? defaultYPercent);
   // widthPercent is the true unit sent to the server: % of the base photo's width.
   // The UI never shows this number directly — it shows a "% of what's currently displayed"
   // figure instead (baselineWidthPercent = 100%), since that's the size saki can actually judge by eye.

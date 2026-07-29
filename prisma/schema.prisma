@@ -80,6 +80,11 @@ model ModelBasePhoto {
   active                     Boolean           @default(true)
   createdAt                  DateTime          @default(now())
 
+  // サイズ調整パネルを開いたとき、まだ一度も配置したことがないパーツの初期位置として使う
+  // （実際の髪の位置に近い座標を管理画面で設定しておくと、毎回中央から動かす手間が減る）。
+  defaultAttachmentXPercent Float @default(50)
+  defaultAttachmentYPercent Float @default(25)
+
   soloPreviews     PartSoloPreview[]
   composites       GeneratedComposite[]
   pendingCheckouts PendingCheckout[]
