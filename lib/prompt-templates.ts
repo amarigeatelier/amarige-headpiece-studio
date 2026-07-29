@@ -99,7 +99,7 @@ export function buildCompositePrompt(
   return lines.join("\n");
 }
 
-export const MULTI_COMPOSITE_PROMPT_VERSION = "v9";
+export const MULTI_COMPOSITE_PROMPT_VERSION = "v10";
 
 export function buildMultiPartCompositePrompt(
   attachmentZone: string,
@@ -136,7 +136,8 @@ export function buildMultiPartCompositePrompt(
     `以下の${parts.length}点のヘアアクセサリーパーツ画像（サイズ参考写真を含む場合あり）を、1つのまとまったヘッドアクセサリーとして自然に組み合わせ、`,
     `画像${modelImg}（最後の画像）のモデルの頭の「${attachmentZone}」の位置に装着した状態で合成してください。`,
     descriptors.join("\n"),
-    "各パーツは実際に手作りで組み合わせて着ける際のように、互いに近接し重なり合う自然な配置にしてください。",
+    "複数パーツを装着する場合、実際にヘアアクセサリーを手作りで組み合わせるときのように、全体でひとまとまりの装飾に見えるよう配置してください。" +
+      "ただし、すべてのパーツを完全に同じ一点に積み重ねるのは不自然です。指定された装着位置の範囲内で、各パーツの中心が少しずつ異なる位置に来るように自然にずらして配置し、端同士が触れ合う・軽く重なる程度に留めてください。",
     "サイズ参考写真が含まれる場合、それは実物サイズ把握のためだけに使い、合成結果には含めないでください。指定したヘアアクセサリーパーツを1つも省略・重複させず、すべて画像内に含めてください。",
   ];
 
