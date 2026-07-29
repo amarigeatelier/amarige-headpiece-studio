@@ -106,6 +106,12 @@ export default async function EditPartPage({ params }: { params: Promise<{ id: s
             </div>
           )}
           <input type="file" name="sizeReference" accept="image/*" className="w-full text-sm" />
+          {part.sizeReferenceImageUrl && (
+            <label className="mt-2 flex items-center gap-1.5 text-xs text-neutral-600">
+              <input type="checkbox" name="removeSizeReference" value="1" />
+              サイズ参考写真を削除する（サイズ目安のテキストのみで生成します）
+            </label>
+          )}
           <p className="mt-1 text-xs text-neutral-500">
             同じパーツを500円玉などの硬貨と並べて撮った写真です。AIがサイズを正確に読み取るためだけに使い、お客様には表示されません。
             選択しなければ現在の設定のまま更新されます。差し替えるとQAプレビューがリセットされます。

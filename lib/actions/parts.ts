@@ -195,6 +195,7 @@ export async function updatePart(partId: string, formData: FormData) {
   const attachmentStyle = String(formData.get("attachmentStyle") ?? "") as AttachmentStyle;
   const file = formData.get("cutout") as File | null;
   const sizeRefFile = formData.get("sizeReference") as File | null;
+  const removeSizeReference = formData.get("removeSizeReference") === "1";
 
   if (!name || !Number.isFinite(addOnPriceJpy) || addOnPriceJpy < 0 || !attachmentStyle) {
     throw new Error("必須項目が入力されていません");
@@ -211,7 +212,7 @@ export async function updatePart(partId: string, formData: FormData) {
   }
 
   const replacingSizeReference = Boolean(sizeRefFile && sizeRefFile.size > 0);
-  let sizeReferenceImageUrl: string | undefined;
+  let sizeReferenceImageUrl: string | null | undefined;
   if (sizeRefFile && sizeRefFile.size > 0) {
     const refKey = crypto.randomUUID();
     const refBytes = new Uint8Array(await sizeRefFile.arrayBuffer());
@@ -220,13 +221,19 @@ export async function updatePart(partId: string, formData: FormData) {
       refBytes,
       sizeRefFile.type || "image/png"
     );
+  } else if (removeSizeReference) {
+    sizeReferenceImageUrl = null;
   }
 
   // Anything that feeds into the compositing prompt (photo, size reference, size note, attachment
   // style) invalidates every prior solo-QA review — the generated images no longer reflect the
   // current inputs.
   const invalidatesPreviews =
-    replacingPhoto || replacingSizeReference || sizeNote !== existing.sizeNote || attachmentStyle !== existing.attachmentStyle;
+    replacingPhoto ||
+    replacingSizeReference ||
+    removeSizeReference ||
+    sizeNote !== existing.sizeNote ||
+    attachmentStyle !== existing.attachmentStyle;
 
   await db.part.update({
     where: { id: partId },
@@ -239,7 +246,7 @@ export async function updatePart(partId: string, formData: FormData) {
       addOnPriceJpy,
       attachmentStyle,
       ...(cutoutImageUrl ? { cutoutImageUrl } : {}),
-      ...(sizeReferenceImageUrl ? { sizeReferenceImageUrl } : {}),
+      ...(sizeReferenceImageUrl !== undefined ? { sizeReferenceImageUrl } : {}),
       ...(invalidatesPreviews ? { status: "draft" } : {}),
     },
   });
