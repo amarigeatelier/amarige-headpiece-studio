@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { updatePart } from "@/lib/actions/parts";
+import SubmitButton from "../../../SubmitButton";
 
 export default async function EditPartPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -69,6 +70,20 @@ export default async function EditPartPage({ params }: { params: Promise<{ id: s
           />
         </div>
         <div>
+          <label className="mb-1 block text-sm text-neutral-600">実物の横幅（cm・できるだけ入力してください）</label>
+          <input
+            name="realWidthCm"
+            type="number"
+            step="0.1"
+            min={0}
+            defaultValue={part.realWidthCm ?? ""}
+            className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+          />
+          <p className="mt-1 text-xs text-neutral-500">
+            「サイズを調整して再生成」の初期の大きさを、この数値とモデル写真側のキャリブレーション値から自動計算するために使います。
+          </p>
+        </div>
+        <div>
           <label className="mb-1 block text-sm text-neutral-600">追加料金（円）</label>
           <input
             name="addOnPriceJpy"
@@ -117,9 +132,9 @@ export default async function EditPartPage({ params }: { params: Promise<{ id: s
             選択しなければ現在の設定のまま更新されます。差し替えるとQAプレビューがリセットされます。
           </p>
         </div>
-        <button type="submit" className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white">
+        <SubmitButton pendingLabel="保存中..." className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
           保存する
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

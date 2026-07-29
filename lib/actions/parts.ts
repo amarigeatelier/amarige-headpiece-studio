@@ -21,6 +21,8 @@ export async function createPart(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
   const sizeNote = String(formData.get("sizeNote") ?? "").trim() || null;
+  const realWidthCmRaw = Number(formData.get("realWidthCm"));
+  const realWidthCm = Number.isFinite(realWidthCmRaw) && realWidthCmRaw > 0 ? realWidthCmRaw : null;
   const displayCategory = String(formData.get("displayCategory") ?? "").trim() || null;
   const color = String(formData.get("color") ?? "").trim() || null;
   const addOnPriceJpy = Number(formData.get("addOnPriceJpy"));
@@ -53,6 +55,7 @@ export async function createPart(formData: FormData) {
       name,
       description,
       sizeNote,
+      realWidthCm,
       displayCategory,
       color,
       addOnPriceJpy,
@@ -202,6 +205,8 @@ export async function updatePart(partId: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
   const sizeNote = String(formData.get("sizeNote") ?? "").trim() || null;
+  const realWidthCmRaw = Number(formData.get("realWidthCm"));
+  const realWidthCm = Number.isFinite(realWidthCmRaw) && realWidthCmRaw > 0 ? realWidthCmRaw : null;
   const displayCategory = String(formData.get("displayCategory") ?? "").trim() || null;
   const color = String(formData.get("color") ?? "").trim() || null;
   const addOnPriceJpy = Number(formData.get("addOnPriceJpy"));
@@ -254,6 +259,7 @@ export async function updatePart(partId: string, formData: FormData) {
       name,
       description,
       sizeNote,
+      realWidthCm,
       displayCategory,
       color,
       addOnPriceJpy,

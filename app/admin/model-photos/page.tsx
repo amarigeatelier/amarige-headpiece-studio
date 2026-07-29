@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { createModelBasePhoto, toggleModelBasePhotoActive } from "@/lib/actions/model-photos";
+import SubmitButton from "../SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -55,9 +56,9 @@ export default async function ModelPhotosPage() {
             <input type="file" name="photo" accept="image/*" required className="w-full text-sm" />
           </div>
           <div className="col-span-2">
-            <button type="submit" className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white">
+            <SubmitButton pendingLabel="追加中..." className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
               追加する
-            </button>
+            </SubmitButton>
           </div>
         </form>
       </section>

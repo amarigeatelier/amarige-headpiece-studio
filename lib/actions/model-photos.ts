@@ -56,6 +56,7 @@ export async function updateModelBasePhoto(id: string, formData: FormData) {
   const file = formData.get("photo") as File | null;
   const defaultAttachmentXPercent = Number(formData.get("defaultAttachmentXPercent"));
   const defaultAttachmentYPercent = Number(formData.get("defaultAttachmentYPercent"));
+  const realWidthCm = Number(formData.get("realWidthCm"));
 
   if (!label || !attachmentZone || compatibleAttachmentStyles.length === 0) {
     throw new Error("必須項目が入力されていません（ラベル・装着位置・対応スタイルは必須）");
@@ -78,6 +79,7 @@ export async function updateModelBasePhoto(id: string, formData: FormData) {
       compatibleAttachmentStyles,
       ...(Number.isFinite(defaultAttachmentXPercent) ? { defaultAttachmentXPercent } : {}),
       ...(Number.isFinite(defaultAttachmentYPercent) ? { defaultAttachmentYPercent } : {}),
+      ...(Number.isFinite(realWidthCm) && realWidthCm > 0 ? { realWidthCm } : {}),
       ...(imageUrl ? { imageUrl } : {}),
     },
   });

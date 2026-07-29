@@ -55,6 +55,9 @@ model Part {
   name            String
   description     String?
   sizeNote        String?
+  // 実物の横幅（cm）。AIに「測らせる」のではなく、ここに登録した実測値とモデル写真側の
+  // realWidthCm から正しい配置サイズ(%)をコード側で計算するために使う（サイズ調整パネルの初期値）。
+  realWidthCm     Float?
   addOnPriceJpy   Int
   attachmentStyle AttachmentStyle
   displayCategory String? // 種類（お花/リボン/リーフ等）。絞り込みフィルターに使用
@@ -84,6 +87,11 @@ model ModelBasePhoto {
   // （実際の髪の位置に近い座標を管理画面で設定しておくと、毎回中央から動かす手間が減る）。
   defaultAttachmentXPercent Float @default(50)
   defaultAttachmentYPercent Float @default(25)
+
+  // この写真の横幅全体が実際は何cmに相当するかのキャリブレーション値。
+  // 管理画面で「頭の横幅」をドラッグで指定し、成人女性の頭の横幅を仮定した値(15cm)から逆算して設定する。
+  // 未設定（null）の間は、Part.realWidthCm による自動サイズ計算は使われない。
+  realWidthCm Float?
 
   soloPreviews     PartSoloPreview[]
   composites       GeneratedComposite[]

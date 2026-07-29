@@ -122,6 +122,11 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
                 initialWidthPercent={preview.layoutWidthPercent}
                 defaultXPercent={preview.basePhoto.defaultAttachmentXPercent}
                 defaultYPercent={preview.basePhoto.defaultAttachmentYPercent}
+                calibratedWidthPercent={
+                  part.realWidthCm && preview.basePhoto.realWidthCm
+                    ? (part.realWidthCm / preview.basePhoto.realWidthCm) * 100
+                    : null
+                }
               />
             </div>
           </div>

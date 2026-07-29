@@ -3,7 +3,7 @@
  * so GeneratedPreview.promptVersion lets us tell which rows were made with an old prompt
  * and might be worth regenerating.
  */
-export const COMPOSITE_PROMPT_VERSION = "v11";
+export const COMPOSITE_PROMPT_VERSION = "v12";
 
 const SIZE_GUIDANCE_HEADER =
   "参考として、成人女性の頭の横幅（耳から耳まで）はおよそ14〜16cmです。この基準に対して、";
@@ -78,22 +78,31 @@ export function buildCompositePrompt(
 
   if (refImg) {
     lines.push(
-      `${refImg}枚目の画像は、${productImg}枚目と同じヘアアクセサリーを硬貨や定規などサイズが分かる物と一緒に撮影した「サイズ参考用」の写真です。実物サイズを正確に把握するためだけに使い、${refImg}枚目に写っている硬貨・定規などの物体自体は最終的な合成結果には一切含めないでください。`
+      layoutImg
+        ? `${refImg}枚目の画像は、${productImg}枚目と同じヘアアクセサリーを硬貨や定規などサイズが分かる物と一緒に撮影した参考写真です。大きさの判断には使わないでください（大きさは後述する配置の下書きが確定値です）。${refImg}枚目に写っている硬貨・定規などの物体自体は最終的な合成結果には一切含めないでください。`
+        : `${refImg}枚目の画像は、${productImg}枚目と同じヘアアクセサリーを硬貨や定規などサイズが分かる物と一緒に撮影した「サイズ参考用」の写真です。実物サイズを正確に把握するためだけに使い、${refImg}枚目に写っている硬貨・定規などの物体自体は最終的な合成結果には一切含めないでください。`
     );
   }
 
   if (exemplarImg) {
-    lines.push(exemplarInstruction(exemplarImg, modelImg));
+    lines.push(
+      layoutImg
+        ? `${exemplarImg}枚目の画像は、髪飾りが自然になじんで見えるお手本の完成例です。質感や馴染ませ方の参考にはしてよいですが、大きさの判断には使わないでください（大きさは後述する配置の下書きが確定値です）。`
+        : exemplarInstruction(exemplarImg, modelImg)
+    );
   }
 
   if (layoutImg) {
     lines.push(
-      `${layoutImg}枚目の画像は、管理者が実際に生成してほしい大きさ・位置を手動で指定した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
-        `${layoutImg}枚目に示された大きさ・位置を最優先の基準とし、他のサイズ情報（実物サイズやサイズ参考写真）より${layoutImg}枚目の指定を優先してください。位置・大きさはこの下書きに従いつつ、仕上がりだけを写実的で自然なものにしてください。`
+      `${layoutImg}枚目の画像は、管理者が実際に生成してほしい大きさ・位置を、実物の採寸データから計算して配置した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
+        `${layoutImg}枚目に写っているアクセサリーの大きさ・位置は目安ではなく、正確な採寸に基づく確定値です。他のサイズ情報（実物サイズやサイズ参考写真、頭の横幅の目安など）は一切参照せず、${layoutImg}枚目に写っている大きさ・位置をピクセル単位でそのまま維持してください。` +
+        `あなたの仕事は大きさや位置を判断し直すことではなく、${layoutImg}枚目に写っている輪郭線の内側を、そのままの大きさ・そのままの位置で写実的に描き直すことだけです。少しでも拡大・縮小・移動すると失敗とみなします。`
     );
   }
 
-  if (sizeNote) {
+  // 配置の下書き（layoutImg）がある場合、そこに写っている大きさが既に採寸から計算された確定値なので、
+  // cm目安やコイン参考写真ベースの縮尺指示は与えない（矛盾する指示になり、AIがどちらを優先すべきか迷う原因になる）。
+  if (!layoutImg && sizeNote) {
     const comparison = describeSizeComparison(sizeNote);
     lines.push(
       `${SIZE_GUIDANCE_HEADER}このヘアアクセサリーの実物サイズは「${sizeNote}」であることを正確に守って縮尺を合わせてください。` +
@@ -101,7 +110,7 @@ export function buildCompositePrompt(
     );
   }
 
-  if (sizeNote || refImg || exemplarImg) {
+  if (!layoutImg && (sizeNote || refImg || exemplarImg)) {
     lines.push(SIZE_GUIDANCE_FOOTER_BASE);
   }
 

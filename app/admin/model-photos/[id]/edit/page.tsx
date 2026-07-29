@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { updateModelBasePhoto } from "@/lib/actions/model-photos";
 import AttachmentPositionPicker from "../../AttachmentPositionPicker";
+import HeadWidthCalibrator from "../../HeadWidthCalibrator";
+import SubmitButton from "../../../SubmitButton";
 
 export default async function EditModelPhotoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -86,14 +88,15 @@ export default async function EditModelPhotoPage({ params }: { params: Promise<{
           initialXPercent={photo.defaultAttachmentXPercent}
           initialYPercent={photo.defaultAttachmentYPercent}
         />
+        <HeadWidthCalibrator imageUrl={photo.imageUrl} initialRealWidthCm={photo.realWidthCm} />
         <div>
           <label className="mb-1 block text-sm text-neutral-600">写真を差し替える（任意）</label>
           <input type="file" name="photo" accept="image/*" className="w-full text-sm" />
           <p className="mt-1 text-xs text-neutral-500">選択しなければ、現在の写真のまま更新されます。</p>
         </div>
-        <button type="submit" className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white">
+        <SubmitButton pendingLabel="保存中..." className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
           保存する
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );

@@ -30,6 +30,7 @@ export default function PartSizer({
   initialWidthPercent,
   defaultXPercent = 50,
   defaultYPercent = 25,
+  calibratedWidthPercent,
 }: {
   partId: string;
   basePhotoId: string;
@@ -41,6 +42,10 @@ export default function PartSizer({
   initialWidthPercent?: number | null;
   defaultXPercent?: number;
   defaultYPercent?: number;
+  // part.realWidthCm ÷ basePhoto.realWidthCm × 100 — computed by the caller from real-world
+  // measurements. When both are known this replaces the arbitrary 20% guess with an actually
+  // correct starting size, instead of relying on Gemini to "measure" the accessory itself.
+  calibratedWidthPercent?: number | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -49,7 +54,9 @@ export default function PartSizer({
   // widthPercent is the true unit sent to the server: % of the base photo's width.
   // The UI never shows this number directly — it shows a "% of what's currently displayed"
   // figure instead (baselineWidthPercent = 100%), since that's the size saki can actually judge by eye.
-  const baselineWidthPercent = initialWidthPercent ?? DEFAULT_WIDTH_PERCENT;
+  const clampedCalibratedWidthPercent =
+    calibratedWidthPercent != null ? Math.min(MAX_WIDTH_PERCENT, Math.max(MIN_WIDTH_PERCENT, calibratedWidthPercent)) : null;
+  const baselineWidthPercent = initialWidthPercent ?? clampedCalibratedWidthPercent ?? DEFAULT_WIDTH_PERCENT;
   const [widthPercent, setWidthPercent] = useState(baselineWidthPercent);
   const [dragMode, setDragMode] = useState<"move" | "resize" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -145,7 +152,9 @@ export default function PartSizer({
         {partName}をドラッグで移動、大きさは右下のつまみをドラッグするか、下の数値欄で調整してから「この配置で再生成」を押してください。
         {initialWidthPercent != null
           ? "下の「大きさ」は今表示されている画像を100%とした割合です。50にすると今の半分の大きさになります。"
-          : "この組み合わせはまだサイズ調整で生成したことがないため、100%は目安のスタート地点です（一度生成すれば、次回からは今の画像を基準に調整できます）。"}
+          : clampedCalibratedWidthPercent != null
+            ? "この組み合わせはまだサイズ調整で生成したことがありませんが、パーツの実物サイズとモデル写真のキャリブレーションから計算した大きさを初期値にしています。100%のままでもほぼ正確なはずです。"
+            : "この組み合わせはまだサイズ調整で生成したことがなく、実物サイズによる自動計算もできない状態のため（パーツまたはモデル写真に実測値が未登録）、100%は目安のスタート地点です。"}
       </p>
       <div
         ref={containerRef}

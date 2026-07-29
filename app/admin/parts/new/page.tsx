@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { createPart } from "@/lib/actions/parts";
+import SubmitButton from "../../SubmitButton";
 
 export default async function NewPartPage() {
   const [categories, colors] = await Promise.all([
@@ -38,7 +39,15 @@ export default async function NewPartPage() {
         <div>
           <label className="mb-1 block text-sm text-neutral-600">サイズ目安（任意・例: 幅約8cm×高さ約6cm）</label>
           <input name="sizeNote" className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" />
-          <p className="mt-1 text-xs text-neutral-500">AI合成時の縮尺の目安としても使われます。</p>
+          <p className="mt-1 text-xs text-neutral-500">AI合成時の説明文としても使われます。</p>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm text-neutral-600">実物の横幅（cm・できるだけ入力してください）</label>
+          <input name="realWidthCm" type="number" step="0.1" min={0} className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" />
+          <p className="mt-1 text-xs text-neutral-500">
+            「サイズを調整して再生成」の初期の大きさを、この数値とモデル写真側のキャリブレーション値から自動計算するために使います。
+            未入力の場合は自動計算されず、従来通り目分量での調整になります。
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-sm text-neutral-600">追加料金（円）</label>
@@ -69,9 +78,9 @@ export default async function NewPartPage() {
         <p className="text-xs text-neutral-500">
           追加すると、対応するアクティブなモデル写真すべてに対して単体合成プレビュー（管理者QA用）が自動生成されます。
         </p>
-        <button type="submit" className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white">
+        <SubmitButton pendingLabel="追加中..." className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
           追加してプレビューを生成
-        </button>
+        </SubmitButton>
       </form>
     </div>
   );
