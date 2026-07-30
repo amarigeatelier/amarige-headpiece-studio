@@ -71,6 +71,13 @@ export function sizeReferenceImagePath(key: string, fileName: string) {
   return `size-references/${key}/${fileName}`;
 }
 
+// Same item as the cutout but with the comb/pin/clip attachment mechanism manually edited out —
+// used as the AI compositing input instead of the (still customer-facing) cutout when present,
+// since asking Gemini to visually identify and hide the mechanism itself proved unreliable.
+export function compositingImagePath(key: string, fileName: string) {
+  return `compositing-images/${key}/${fileName}`;
+}
+
 export function modelPhotoPath(key: string, fileName: string) {
   return `model-photos/${key}/${fileName}`;
 }

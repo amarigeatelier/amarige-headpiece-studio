@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       Promise.all(
         parts.map(async (part) => {
           const [{ bytes, contentType }, sizeReference] = await Promise.all([
-            fetchImageBytes(part.cutoutImageUrl),
+            fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
             part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
           ]);
           return {

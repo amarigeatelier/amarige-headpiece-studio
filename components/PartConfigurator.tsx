@@ -17,6 +17,7 @@ type Part = {
   id: string;
   name: string;
   cutoutImageUrl: string;
+  compositingImageUrl: string | null;
   addOnPriceJpy: number;
   displayCategory: string | null;
   color: string | null;
@@ -61,7 +62,7 @@ async function buildLayoutImageDataUrl(
   for (const part of selectedParts) {
     const l = layout.find((x) => x.partId === part.id);
     if (!l) continue;
-    const img = await loadImage(part.cutoutImageUrl);
+    const img = await loadImage(part.compositingImageUrl || part.cutoutImageUrl);
     const imgNoBg = stripNearWhiteBackground(img);
     const widthFraction =
       part.realWidthCm && basePhotoRealWidthCm

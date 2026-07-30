@@ -132,6 +132,28 @@ export default async function EditPartPage({ params }: { params: Promise<{ id: s
             選択しなければ現在の設定のまま更新されます。差し替えるとQAプレビューがリセットされます。
           </p>
         </div>
+        <div>
+          <label className="mb-1 block text-sm text-neutral-600">
+            生成用写真・ピンなしを{part.compositingImageUrl ? "差し替える" : "追加する"}（任意）
+          </label>
+          {part.compositingImageUrl && (
+            <div className="mb-2 w-24 overflow-hidden rounded border border-neutral-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={part.compositingImageUrl} alt="生成用写真（ピンなし）" className="aspect-square w-full object-cover" />
+            </div>
+          )}
+          <input type="file" name="compositingImage" accept="image/*" className="w-full text-sm" />
+          {part.compositingImageUrl && (
+            <label className="mt-2 flex items-center gap-1.5 text-xs text-neutral-600">
+              <input type="checkbox" name="removeCompositingImage" value="1" />
+              生成用写真を削除する（カットアウト写真をそのままAI生成にも使います）
+            </label>
+          )}
+          <p className="mt-1 text-xs text-neutral-500">
+            カットアウト写真からコーム・ピンなどの装着部分だけを手動で消した写真です。登録すると、AI生成時はこちらを優先的に使用します（お客様には表示されません）。
+            選択しなければ現在の設定のまま更新されます。差し替えるとQAプレビューがリセットされます。
+          </p>
+        </div>
         <SubmitButton pendingLabel="保存中..." className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
           保存する
         </SubmitButton>

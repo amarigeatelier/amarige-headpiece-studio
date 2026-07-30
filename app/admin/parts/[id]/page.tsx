@@ -115,7 +115,7 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
                 partId={part.id}
                 basePhotoId={preview.basePhotoId}
                 baseImageUrl={preview.basePhoto.imageUrl}
-                cutoutImageUrl={part.cutoutImageUrl}
+                cutoutImageUrl={part.compositingImageUrl || part.cutoutImageUrl}
                 partName={part.name}
                 initialXPercent={preview.layoutXPercent}
                 initialYPercent={preview.layoutYPercent}

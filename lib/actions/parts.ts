@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { uploadImage, cutoutImagePath, sizeReferenceImagePath, soloPreviewImagePath, fetchImageBytes } from "@/lib/storage";
+import {
+  uploadImage,
+  cutoutImagePath,
+  sizeReferenceImagePath,
+  compositingImagePath,
+  soloPreviewImagePath,
+  fetchImageBytes,
+} from "@/lib/storage";
 import { composePreview } from "@/lib/gemini";
 import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
 import type { AttachmentStyle } from "@prisma/client";
@@ -29,6 +36,7 @@ export async function createPart(formData: FormData) {
   const attachmentStyle = String(formData.get("attachmentStyle") ?? "") as AttachmentStyle;
   const file = formData.get("cutout") as File | null;
   const sizeRefFile = formData.get("sizeReference") as File | null;
+  const compositingFile = formData.get("compositingImage") as File | null;
 
   if (!name || !Number.isFinite(addOnPriceJpy) || addOnPriceJpy < 0 || !attachmentStyle || !file || file.size === 0) {
     throw new Error("必須項目が入力されていません");
@@ -49,6 +57,17 @@ export async function createPart(formData: FormData) {
     );
   }
 
+  let compositingImageUrl: string | null = null;
+  if (compositingFile && compositingFile.size > 0) {
+    const compKey = crypto.randomUUID();
+    const compBytes = new Uint8Array(await compositingFile.arrayBuffer());
+    compositingImageUrl = await uploadImage(
+      compositingImagePath(compKey, compositingFile.name),
+      compBytes,
+      compositingFile.type || "image/png"
+    );
+  }
+
   const part = await db.part.create({
     data: {
       slug: slugify(name),
@@ -61,6 +80,7 @@ export async function createPart(formData: FormData) {
       addOnPriceJpy,
       cutoutImageUrl,
       sizeReferenceImageUrl,
+      compositingImageUrl,
       attachmentStyle,
       status: "draft",
     },
@@ -105,7 +125,7 @@ export async function generateSingleSoloPreview(
     const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
 
     const [cutout, base, sizeReference, exemplar] = await Promise.all([
-      fetchImageBytes(part.cutoutImageUrl),
+      fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
       fetchImageBytes(basePhoto.imageUrl),
       part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
       storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
@@ -214,6 +234,8 @@ export async function updatePart(partId: string, formData: FormData) {
   const file = formData.get("cutout") as File | null;
   const sizeRefFile = formData.get("sizeReference") as File | null;
   const removeSizeReference = formData.get("removeSizeReference") === "1";
+  const compositingFile = formData.get("compositingImage") as File | null;
+  const removeCompositingImage = formData.get("removeCompositingImage") === "1";
 
   if (!name || !Number.isFinite(addOnPriceJpy) || addOnPriceJpy < 0 || !attachmentStyle) {
     throw new Error("必須項目が入力されていません");
@@ -243,13 +265,29 @@ export async function updatePart(partId: string, formData: FormData) {
     sizeReferenceImageUrl = null;
   }
 
-  // Anything that feeds into the compositing prompt (photo, size reference, size note, attachment
-  // style) invalidates every prior solo-QA review — the generated images no longer reflect the
-  // current inputs.
+  const replacingCompositingImage = Boolean(compositingFile && compositingFile.size > 0);
+  let compositingImageUrl: string | null | undefined;
+  if (compositingFile && compositingFile.size > 0) {
+    const compKey = crypto.randomUUID();
+    const compBytes = new Uint8Array(await compositingFile.arrayBuffer());
+    compositingImageUrl = await uploadImage(
+      compositingImagePath(compKey, compositingFile.name),
+      compBytes,
+      compositingFile.type || "image/png"
+    );
+  } else if (removeCompositingImage) {
+    compositingImageUrl = null;
+  }
+
+  // Anything that feeds into the compositing prompt (photo, size reference, compositing image,
+  // size note, attachment style) invalidates every prior solo-QA review — the generated images
+  // no longer reflect the current inputs.
   const invalidatesPreviews =
     replacingPhoto ||
     replacingSizeReference ||
     removeSizeReference ||
+    replacingCompositingImage ||
+    removeCompositingImage ||
     sizeNote !== existing.sizeNote ||
     attachmentStyle !== existing.attachmentStyle;
 
@@ -266,6 +304,7 @@ export async function updatePart(partId: string, formData: FormData) {
       attachmentStyle,
       ...(cutoutImageUrl ? { cutoutImageUrl } : {}),
       ...(sizeReferenceImageUrl !== undefined ? { sizeReferenceImageUrl } : {}),
+      ...(compositingImageUrl !== undefined ? { compositingImageUrl } : {}),
       ...(invalidatesPreviews ? { status: "draft" } : {}),
     },
   });

@@ -30,6 +30,7 @@ export default async function StorefrontHomePage() {
           id: p.id,
           name: p.name,
           cutoutImageUrl: p.cutoutImageUrl,
+          compositingImageUrl: p.compositingImageUrl,
           addOnPriceJpy: p.addOnPriceJpy,
           displayCategory: p.displayCategory,
           color: p.color,

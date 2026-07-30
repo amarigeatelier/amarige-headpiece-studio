@@ -75,6 +75,14 @@ export default async function NewPartPage() {
             同じパーツを500円玉などの硬貨と並べて撮った写真です。AIがサイズを正確に読み取るためだけに使い、お客様には表示されません。サイズ感のブレを大きく減らせます。
           </p>
         </div>
+        <div>
+          <label className="mb-1 block text-sm text-neutral-600">生成用写真・ピンなし（任意）</label>
+          <input type="file" name="compositingImage" accept="image/*" className="w-full text-sm" />
+          <p className="mt-1 text-xs text-neutral-500">
+            カットアウト写真からコーム・ピンなどの装着部分だけを手動で消した写真です。登録すると、AI生成時はこちらを優先的に使用します（お客様には表示されません、カットアウト写真がそのまま商品一覧に表示されます）。
+            未登録の場合はカットアウト写真がそのままAI生成にも使われます。
+          </p>
+        </div>
         <p className="text-xs text-neutral-500">
           追加すると、対応するアクティブなモデル写真すべてに対して単体合成プレビュー（管理者QA用）が自動生成されます。
         </p>
