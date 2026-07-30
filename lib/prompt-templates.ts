@@ -3,7 +3,7 @@
  * so GeneratedPreview.promptVersion lets us tell which rows were made with an old prompt
  * and might be worth regenerating.
  */
-export const COMPOSITE_PROMPT_VERSION = "v13";
+export const COMPOSITE_PROMPT_VERSION = "v14";
 
 const SIZE_GUIDANCE_HEADER =
   "参考として、成人女性の頭の横幅（耳から耳まで）はおよそ14〜16cmです。この基準に対して、";
@@ -191,4 +191,60 @@ export function buildMultiPartCompositePrompt(
   );
 
   return lines.join("\n");
+}
+
+/**
+ * Turns a position delta (in % of the photo's width/height) into a short natural-language
+ * direction + magnitude phrase, e.g. "右下にはっきりと". Returns null when the delta is
+ * negligible (< 1%), so a no-op drag doesn't produce a spurious instruction.
+ */
+function describePositionDelta(dxPercent: number, dyPercent: number): string | null {
+  const magnitude = Math.max(Math.abs(dxPercent), Math.abs(dyPercent));
+  if (magnitude < 1) return null;
+  const magnitudeWord = magnitude < 3 ? "ごくわずかに" : magnitude < 8 ? "少し" : magnitude < 18 ? "はっきりと" : "大きく";
+  const horizontal = dxPercent > 1 ? "右" : dxPercent < -1 ? "左" : "";
+  const vertical = dyPercent > 1 ? "下" : dyPercent < -1 ? "上" : "";
+  const direction = [horizontal, vertical].filter(Boolean).join("");
+  return `${direction}に${magnitudeWord}`;
+}
+
+/**
+ * Describes the requested change from the previous generation as a short instruction, e.g.
+ * "位置を右にはっきりと動かす、大きさを元の70%に縮小する。" Returns a "no change" phrase when
+ * both deltas are negligible, so a same-config regenerate still reads as a valid instruction
+ * (asking only for a fresh realistic render) rather than an empty one.
+ */
+export function describeAdjustment(dxPercent: number, dyPercent: number, widthRatioPercent: number | null): string {
+  const clauses: string[] = [];
+
+  const positionPhrase = describePositionDelta(dxPercent, dyPercent);
+  if (positionPhrase) clauses.push(`位置を${positionPhrase}動かす`);
+
+  if (widthRatioPercent != null && Math.abs(widthRatioPercent - 100) >= 2) {
+    const rounded = Math.round(widthRatioPercent);
+    clauses.push(`大きさを元の${rounded}%に${widthRatioPercent < 100 ? "縮小" : "拡大"}する`);
+  }
+
+  if (clauses.length === 0) {
+    return "位置・大きさは変更しない。写実的な仕上がりを保ったまま作り直す。";
+  }
+  return clauses.join("、") + "。";
+}
+
+export const ADJUSTMENT_PROMPT_VERSION = "v1";
+
+/**
+ * Prompt for adjusting an EXISTING, already-photorealistic composite result rather than composing
+ * a new one from scratch. Editing a specific small detail on a real photo is a task generative
+ * image models handle far more reliably than reconstructing a whole composition from a crude
+ * reference draft every time — this is the fix for regenerations being unstable (drifting position,
+ * or the accessory disappearing entirely) even when the requested change was small.
+ */
+export function buildAdjustmentPrompt(adjustmentDescription: string): string {
+  return [
+    "1枚目の画像は、ヘアアクセサリーを合成済みの写真です。この写真に対して、次の変更だけを加えてください：",
+    adjustmentDescription,
+    "指定した変更以外は一切変更しないでください。アクセサリーのデザイン・向き・色、モデルの顔・髪型・肌・背景・衣装、光の当たり方や色味、写真全体の雰囲気は、元の写真と完全に同じに保ってください。",
+    "新しい構図をゼロから考え直すのではなく、1枚目の写真をそのまま少しだけ編集するイメージで生成してください。",
+  ].join("\n");
 }

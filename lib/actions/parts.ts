@@ -12,7 +12,7 @@ import {
   fetchImageBytes,
 } from "@/lib/storage";
 import { composePreview } from "@/lib/gemini";
-import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
+import { COMPOSITE_PROMPT_VERSION, describeAdjustment } from "@/lib/prompt-templates";
 import type { AttachmentStyle } from "@prisma/client";
 
 function slugify(name: string): string {
@@ -116,35 +116,60 @@ export async function generateSingleSoloPreview(
   basePhotoId: string,
   layout?: { bytes: Uint8Array; contentType: string; xPercent?: number; yPercent?: number; widthPercent?: number }
 ) {
-  const [part, basePhoto] = await Promise.all([
+  const [part, basePhoto, existing] = await Promise.all([
     db.part.findUniqueOrThrow({ where: { id: partId } }),
     db.modelBasePhoto.findUniqueOrThrow({ where: { id: basePhotoId } }),
+    db.partSoloPreview.findUnique({ where: { partId_basePhotoId: { partId, basePhotoId } } }),
   ]);
 
   try {
-    const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
+    const hasNewLayout = layout?.xPercent !== undefined && layout?.yPercent !== undefined && layout?.widthPercent !== undefined;
+    const hasPreviousLayout =
+      existing?.layoutXPercent != null && existing?.layoutYPercent != null && existing?.layoutWidthPercent != null;
 
-    const [cutout, base, sizeReference, exemplar] = await Promise.all([
-      fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
-      fetchImageBytes(basePhoto.imageUrl),
-      part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
-      storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
-    ]);
+    let result: Awaited<ReturnType<typeof composePreview>>;
 
-    const result = await composePreview({
-      cutoutBytes: cutout.bytes,
-      cutoutMimeType: cutout.contentType,
-      baseBytes: base.bytes,
-      baseMimeType: base.contentType,
-      attachmentZone: basePhoto.attachmentZone,
-      sizeNote: part.sizeNote,
-      sizeReferenceBytes: sizeReference?.bytes,
-      sizeReferenceMimeType: sizeReference?.contentType,
-      exemplarBytes: exemplar?.bytes,
-      exemplarMimeType: exemplar?.contentType,
-      layoutBytes: layout?.bytes,
-      layoutMimeType: layout?.contentType,
-    });
+    if (hasNewLayout && existing?.imageUrl && hasPreviousLayout) {
+      // A previous manually-placed generation exists — edit that known-good photo directly
+      // instead of recomposing from a crude draft, which is far more reliable for small changes.
+      const previous = await fetchImageBytes(existing.imageUrl);
+      const adjustmentDescription = describeAdjustment(
+        layout!.xPercent! - existing.layoutXPercent!,
+        layout!.yPercent! - existing.layoutYPercent!,
+        (layout!.widthPercent! / existing.layoutWidthPercent!) * 100
+      );
+      result = await composePreview({
+        mode: "adjust",
+        previousResultBytes: previous.bytes,
+        previousResultMimeType: previous.contentType,
+        adjustmentDescription,
+      });
+    } else {
+      const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
+
+      const [cutout, base, sizeReference, exemplar] = await Promise.all([
+        fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
+        fetchImageBytes(basePhoto.imageUrl),
+        part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
+        storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
+      ]);
+
+      result = await composePreview({
+        mode: "compose",
+        cutoutBytes: cutout.bytes,
+        cutoutMimeType: cutout.contentType,
+        baseBytes: base.bytes,
+        baseMimeType: base.contentType,
+        attachmentZone: basePhoto.attachmentZone,
+        sizeNote: part.sizeNote,
+        sizeReferenceBytes: sizeReference?.bytes,
+        sizeReferenceMimeType: sizeReference?.contentType,
+        exemplarBytes: exemplar?.bytes,
+        exemplarMimeType: exemplar?.contentType,
+        layoutBytes: layout?.bytes,
+        layoutMimeType: layout?.contentType,
+      });
+    }
 
     const imageUrl = await uploadImage(soloPreviewImagePath(partId, basePhotoId), result.imageBytes, result.mimeType);
 

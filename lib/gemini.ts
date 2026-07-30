@@ -4,6 +4,8 @@ import {
   buildCompositePrompt,
   MULTI_COMPOSITE_PROMPT_VERSION,
   buildMultiPartCompositePrompt,
+  ADJUSTMENT_PROMPT_VERSION,
+  buildAdjustmentPrompt,
 } from "./prompt-templates";
 
 const MODEL = "gemini-2.5-flash-image";
@@ -23,7 +25,8 @@ function getClient(): GoogleGenAI {
   return client;
 }
 
-export type CompositeInput = {
+export type CompositeFromScratchInput = {
+  mode: "compose";
   cutoutBytes: Uint8Array;
   cutoutMimeType: string;
   baseBytes: Uint8Array;
@@ -39,6 +42,19 @@ export type CompositeInput = {
   layoutBytes?: Uint8Array;
   layoutMimeType?: string;
 };
+
+// Edits an EXISTING photorealistic result instead of composing a new one from scratch — editing a
+// known-good photo is far more reliable than recomposing from a crude reference draft every time,
+// which was causing regenerations to drift position or drop the accessory entirely even for small
+// requested changes.
+export type CompositeAdjustmentInput = {
+  mode: "adjust";
+  previousResultBytes: Uint8Array;
+  previousResultMimeType: string;
+  adjustmentDescription: string;
+};
+
+export type CompositeInput = CompositeFromScratchInput | CompositeAdjustmentInput;
 
 export type PartImageInput = {
   partId: string;
@@ -132,6 +148,12 @@ async function generateWithRetry(prompt: string, images: ImagePart[], promptVers
 
 /** Composites a single part cutout onto a single base photo — used for admin solo-QA previews. */
 export async function composePreview(input: CompositeInput): Promise<CompositeResult> {
+  if (input.mode === "adjust") {
+    const prompt = buildAdjustmentPrompt(input.adjustmentDescription);
+    const images: ImagePart[] = [{ mimeType: input.previousResultMimeType, base64: toBase64(input.previousResultBytes) }];
+    return generateWithRetry(prompt, images, ADJUSTMENT_PROMPT_VERSION);
+  }
+
   const hasSizeReference = Boolean(input.sizeReferenceBytes && input.sizeReferenceMimeType);
   const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
   const hasLayout = Boolean(input.layoutBytes && input.layoutMimeType);
