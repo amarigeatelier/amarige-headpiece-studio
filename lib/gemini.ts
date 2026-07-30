@@ -57,6 +57,11 @@ export type MultiCompositeInput = {
   attachmentZone: string;
   exemplarBytes?: Uint8Array;
   exemplarMimeType?: string;
+  // Client-drawn rough draft (base photo + each selected part pasted at the position/rotation
+  // the customer dragged it to) — sent as an extra reference image so the customer's chosen
+  // layout is respected in the final photorealistic render instead of left to the model's guess.
+  layoutBytes?: Uint8Array;
+  layoutMimeType?: string;
 };
 
 export type CompositeResult = {
@@ -154,6 +159,7 @@ export async function composeParts(input: MultiCompositeInput): Promise<Composit
   }
 
   const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
+  const hasLayout = Boolean(input.layoutBytes && input.layoutMimeType);
   const prompt = buildMultiPartCompositePrompt(
     input.attachmentZone,
     input.parts.map((p) => ({
@@ -161,7 +167,8 @@ export async function composeParts(input: MultiCompositeInput): Promise<Composit
       sizeNote: p.sizeNote,
       hasSizeReference: Boolean(p.sizeReferenceBytes && p.sizeReferenceMimeType),
     })),
-    hasExemplar
+    hasExemplar,
+    hasLayout
   );
 
   const images: ImagePart[] = [];
@@ -173,6 +180,9 @@ export async function composeParts(input: MultiCompositeInput): Promise<Composit
   }
   if (hasExemplar) {
     images.push({ mimeType: input.exemplarMimeType!, base64: toBase64(input.exemplarBytes!) });
+  }
+  if (hasLayout) {
+    images.push({ mimeType: input.layoutMimeType!, base64: toBase64(input.layoutBytes!) });
   }
   images.push({ mimeType: input.baseMimeType, base64: toBase64(input.baseBytes) });
 

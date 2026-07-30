@@ -18,7 +18,14 @@ export default async function StorefrontHomePage() {
       </p>
 
       <PartConfigurator
-        basePhotos={basePhotos.map((b) => ({ id: b.id, label: b.label, imageUrl: b.imageUrl }))}
+        basePhotos={basePhotos.map((b) => ({
+          id: b.id,
+          label: b.label,
+          imageUrl: b.imageUrl,
+          defaultAttachmentXPercent: b.defaultAttachmentXPercent,
+          defaultAttachmentYPercent: b.defaultAttachmentYPercent,
+          realWidthCm: b.realWidthCm,
+        }))}
         parts={parts.map((p) => ({
           id: p.id,
           name: p.name,
@@ -26,6 +33,7 @@ export default async function StorefrontHomePage() {
           addOnPriceJpy: p.addOnPriceJpy,
           displayCategory: p.displayCategory,
           color: p.color,
+          realWidthCm: p.realWidthCm,
         }))}
         basePriceJpy={setting?.basePriceJpy ?? 0}
       />

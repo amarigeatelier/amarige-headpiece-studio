@@ -3,13 +3,39 @@ import { db } from "@/lib/db";
 import { fetchImageBytes, uploadImage, compositeImagePath } from "@/lib/storage";
 import { composeParts } from "@/lib/gemini";
 import { MULTI_COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
-import { computeCombinationKey, sortPartIds } from "@/lib/composite-key";
+import { computeCombinationKey, sortPartIds, type PartLayout } from "@/lib/composite-key";
 import { getClientIp, hashIp, isUnderDailyLimit, recordGenerationAttempt, DAILY_GENERATION_LIMIT } from "@/lib/rate-limit";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATA_URL_PATTERN = /^data:(image\/[a-z+]+);base64,(.+)$/;
+
+function parseLayout(raw: unknown, validPartIds: Set<string>): PartLayout[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const layout: PartLayout[] = [];
+  for (const item of raw) {
+    if (
+      item &&
+      typeof item.partId === "string" &&
+      validPartIds.has(item.partId) &&
+      Number.isFinite(item.xPercent) &&
+      Number.isFinite(item.yPercent) &&
+      Number.isFinite(item.rotationDeg)
+    ) {
+      layout.push({ partId: item.partId, xPercent: item.xPercent, yPercent: item.yPercent, rotationDeg: item.rotationDeg });
+    }
+  }
+  return layout.length > 0 ? layout : undefined;
+}
+
+function parseDataUrl(dataUrl: unknown): { bytes: Uint8Array; contentType: string } | null {
+  if (typeof dataUrl !== "string") return null;
+  const match = dataUrl.match(DATA_URL_PATTERN);
+  if (!match) return null;
+  return { bytes: new Uint8Array(Buffer.from(match[2], "base64")), contentType: match[1] };
+}
 
 export async function POST(req: NextRequest) {
-  const { basePhotoId, partIds, email } = await req.json();
+  const { basePhotoId, partIds, email, layout: rawLayout, layoutImageBase64 } = await req.json();
 
   if (typeof basePhotoId !== "string" || !Array.isArray(partIds) || partIds.length === 0) {
     return NextResponse.json({ error: "不正なリクエストです" }, { status: 400 });
@@ -34,8 +60,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "選択されたパーツの一部が利用できません" }, { status: 404 });
   }
 
+  const layout = parseLayout(rawLayout, new Set(partIds));
+  const layoutImage = parseDataUrl(layoutImageBase64);
+
   const sortedPartIds = sortPartIds(partIds);
-  const combinationKey = computeCombinationKey(basePhotoId, sortedPartIds);
+  const combinationKey = computeCombinationKey(basePhotoId, sortedPartIds, layout);
 
   const cached = await db.generatedComposite.findUnique({ where: { combinationKey } });
   if (cached && cached.status === "ready" && cached.promptVersion === MULTI_COMPOSITE_PROMPT_VERSION && cached.imageUrl) {
@@ -87,6 +116,8 @@ export async function POST(req: NextRequest) {
       attachmentZone: basePhoto.attachmentZone,
       exemplarBytes: exemplar?.bytes,
       exemplarMimeType: exemplar?.contentType,
+      layoutBytes: layoutImage?.bytes,
+      layoutMimeType: layoutImage?.contentType,
     });
 
     const imageUrl = await uploadImage(compositeImagePath(combinationKey), result.imageBytes, result.mimeType);

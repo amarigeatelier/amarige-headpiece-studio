@@ -117,12 +117,13 @@ export function buildCompositePrompt(
   return lines.join("\n");
 }
 
-export const MULTI_COMPOSITE_PROMPT_VERSION = "v10";
+export const MULTI_COMPOSITE_PROMPT_VERSION = "v12";
 
 export function buildMultiPartCompositePrompt(
   attachmentZone: string,
   parts: { label: string; sizeNote?: string | null; hasSizeReference?: boolean }[],
-  hasExemplar?: boolean
+  hasExemplar?: boolean,
+  hasLayout?: boolean
 ): string {
   let n = 1;
   const descriptors: string[] = [];
@@ -148,7 +149,8 @@ export function buildMultiPartCompositePrompt(
   }
 
   const exemplarImg = hasExemplar ? n++ : null;
-  const modelImg = n; // the base/model photo is always sent last, after every part's image(s) and the exemplar (if any)
+  const layoutImg = hasLayout ? n++ : null;
+  const modelImg = n; // the base/model photo is always sent last, after every part's image(s), the exemplar, and the layout draft (if any)
 
   const lines = [
     `以下の${parts.length}点のヘアアクセサリーパーツ画像（サイズ参考写真を含む場合あり）を、1つのまとまったヘッドアクセサリーとして自然に組み合わせ、`,
@@ -162,6 +164,14 @@ export function buildMultiPartCompositePrompt(
   if (exemplarImg) {
     lines.push(exemplarInstruction(exemplarImg, modelImg));
     anySizeInfo = true;
+  }
+
+  if (layoutImg) {
+    lines.push(
+      `${layoutImg}枚目の画像は、お客様が各パーツをどこにどの向きで配置したいかを指定した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
+        `${layoutImg}枚目に示された各パーツの位置関係・向きを最優先の基準とし、上記の「重ねすぎず散らして配置する」という一般的な指示より${layoutImg}枚目の指定を優先してください。位置・向きはこの下書きに従いつつ、仕上がりだけを写実的で自然なものにしてください。` +
+        `ただし${layoutImg}枚目に写っている各パーツの「大きさ」は必ずしも正確とは限らないため、大きさの判断は各パーツについて別途記載した実物サイズ・サイズ参考写真を優先し、位置・向きのみを${layoutImg}枚目から読み取ってください。`
+    );
   }
 
   if (anySizeInfo) {

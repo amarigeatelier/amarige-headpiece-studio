@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { stripNearWhiteBackground } from "@/lib/strip-white-background";
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -112,11 +113,12 @@ export default function PartSizer({
       ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
 
       const cutoutImg = await loadImage(cutoutImageUrl);
+      const cutoutNoBg = stripNearWhiteBackground(cutoutImg);
       const w = canvas.width * (widthPercent / 100);
       const h = w * (cutoutImg.naturalHeight / cutoutImg.naturalWidth);
       const cx = (xPercent / 100) * canvas.width;
       const cy = (yPercent / 100) * canvas.height;
-      ctx.drawImage(cutoutImg, cx - w / 2, cy - h / 2, w, h);
+      ctx.drawImage(cutoutNoBg, cx - w / 2, cy - h / 2, w, h);
 
       const layoutImageBase64 = canvas.toDataURL("image/png");
 

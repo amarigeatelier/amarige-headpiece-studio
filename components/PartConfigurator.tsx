@@ -1,11 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import PartPlacer, { defaultLayout, type PartLayout } from "./PartPlacer";
+import { stripNearWhiteBackground } from "@/lib/strip-white-background";
 
 type BasePhoto = {
   id: string;
   label: string;
   imageUrl: string;
+  defaultAttachmentXPercent: number;
+  defaultAttachmentYPercent: number;
+  realWidthCm: number | null;
 };
 
 type Part = {
@@ -15,7 +20,66 @@ type Part = {
   addOnPriceJpy: number;
   displayCategory: string | null;
   color: string | null;
+  realWidthCm: number | null;
 };
+
+const FALLBACK_WIDTH_FRACTION = 0.18;
+const MIN_WIDTH_FRACTION = 0.05;
+const MAX_WIDTH_FRACTION = 0.6;
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`画像の読み込みに失敗しました: ${src}`));
+    img.src = src;
+  });
+}
+
+/** Draws the base photo + each part at its dragged position/rotation onto a canvas, as a rough
+ * "layout draft" reference image to send alongside the generation request. Each part's width is
+ * calculated from its real-world cm size against the base photo's calibrated real-world width when
+ * both are known, instead of a flat guessed fraction — the same real-measurement approach used in
+ * the admin sizing tool, so Gemini isn't asked to judge scale itself. Cutout backgrounds are
+ * stripped (near-white → transparent) before pasting so the draft doesn't carry a visible white box
+ * around each part, which otherwise reads as part of the shape. */
+async function buildLayoutImageDataUrl(
+  baseImageUrl: string,
+  basePhotoRealWidthCm: number | null,
+  selectedParts: Part[],
+  layout: PartLayout[]
+): Promise<string> {
+  const baseImg = await loadImage(baseImageUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = baseImg.naturalWidth;
+  canvas.height = baseImg.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas unsupported");
+  ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
+
+  for (const part of selectedParts) {
+    const l = layout.find((x) => x.partId === part.id);
+    if (!l) continue;
+    const img = await loadImage(part.cutoutImageUrl);
+    const imgNoBg = stripNearWhiteBackground(img);
+    const widthFraction =
+      part.realWidthCm && basePhotoRealWidthCm
+        ? Math.min(MAX_WIDTH_FRACTION, Math.max(MIN_WIDTH_FRACTION, part.realWidthCm / basePhotoRealWidthCm))
+        : FALLBACK_WIDTH_FRACTION;
+    const w = canvas.width * widthFraction;
+    const h = w * (img.naturalHeight / img.naturalWidth);
+    const cx = (l.xPercent / 100) * canvas.width;
+    const cy = (l.yPercent / 100) * canvas.height;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((l.rotationDeg * Math.PI) / 180);
+    ctx.drawImage(imgNoBg, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
+
+  return canvas.toDataURL("image/png");
+}
 
 export default function PartConfigurator({
   basePhotos,
@@ -37,6 +101,7 @@ export default function PartConfigurator({
   const [purchasingCredits, setPurchasingCredits] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
+  const [layout, setLayout] = useState<PartLayout[]>([]);
 
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -81,11 +146,33 @@ export default function PartConfigurator({
     return basePriceJpy + addOn;
   }, [parts, selectedPartIds, basePriceJpy]);
 
+  const selectedParts = useMemo(() => parts.filter((p) => selectedPartIds.has(p.id)), [parts, selectedPartIds]);
+  const currentBasePhoto = useMemo(() => basePhotos.find((b) => b.id === basePhotoId), [basePhotos, basePhotoId]);
+
+  // Keeps `layout` in sync with a new selection set: newly selected parts get a spread-out
+  // default position (centered on the current base photo's calibrated attachment point, not an
+  // arbitrary fixed spot), deselected parts are dropped, already-placed parts keep whatever the
+  // customer dragged them to. Called directly from the selection-changing handlers rather than a
+  // useEffect, since the update is a direct response to a user action, not a sync with an
+  // external system.
+  function syncLayoutToSelection(nextIds: Set<string>) {
+    setLayout((prev) => {
+      const kept = prev.filter((l) => nextIds.has(l.partId));
+      const missingParts = parts.filter((p) => nextIds.has(p.id) && !kept.some((l) => l.partId === p.id));
+      if (missingParts.length === 0 && kept.length === prev.length) return prev;
+      return [
+        ...kept,
+        ...defaultLayout(missingParts, currentBasePhoto?.defaultAttachmentXPercent, currentBasePhoto?.defaultAttachmentYPercent),
+      ];
+    });
+  }
+
   function togglePart(partId: string) {
     setSelectedPartIds((prev) => {
       const next = new Set(prev);
       if (next.has(partId)) next.delete(partId);
       else next.add(partId);
+      syncLayoutToSelection(next);
       return next;
     });
     setPreview(null);
@@ -98,14 +185,25 @@ export default function PartConfigurator({
 
   async function handleGeneratePreview() {
     if (!basePhotoId || selectedPartIds.size === 0 || !isEmailValid) return;
+    const basePhoto = basePhotos.find((b) => b.id === basePhotoId);
+    if (!basePhoto) return;
     setGenerating(true);
     setError(null);
     setLimitReached(false);
     try {
+      const layoutImageBase64 = await buildLayoutImageDataUrl(basePhoto.imageUrl, basePhoto.realWidthCm, selectedParts, layout).catch(
+        () => null
+      );
       const res = await fetch("/api/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ basePhotoId, partIds: Array.from(selectedPartIds), email }),
+        body: JSON.stringify({
+          basePhotoId,
+          partIds: Array.from(selectedPartIds),
+          email,
+          layout,
+          layoutImageBase64,
+        }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -164,24 +262,34 @@ export default function PartConfigurator({
   return (
     <div className="grid gap-8 sm:grid-cols-2">
       <div>
-        <div className="aspect-[3/4] w-full overflow-hidden rounded-lg bg-neutral-100">
-          {preview ? (
-            // eslint-disable-next-line @next/next/no-img-element
+        {preview ? (
+          <div className="aspect-[3/4] w-full overflow-hidden rounded-lg bg-neutral-100">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={preview.imageUrl} alt="生成されたプレビュー" className="h-full w-full object-cover" />
-          ) : (
-            (() => {
-              const base = basePhotos.find((b) => b.id === basePhotoId);
-              return base ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={base.imageUrl} alt={base.label} className="h-full w-full object-cover opacity-60" />
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+          </div>
+        ) : (() => {
+            const base = basePhotos.find((b) => b.id === basePhotoId);
+            if (!base) {
+              return (
+                <div className="flex aspect-[3/4] w-full items-center justify-center rounded-lg bg-neutral-100 text-sm text-neutral-400">
                   ベース写真を選んでください
                 </div>
               );
-            })()
-          )}
-        </div>
+            }
+            if (selectedParts.length === 0) {
+              return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={base.imageUrl} alt={base.label} className="aspect-[3/4] w-full rounded-lg object-cover opacity-60" />
+              );
+            }
+            return <PartPlacer baseImageUrl={base.imageUrl} parts={selectedParts} layout={layout} onChange={setLayout} />;
+          })()}
+
+        {!preview && selectedParts.length > 0 && (
+          <p className="mt-2 text-xs text-neutral-500">
+            パーツをドラッグして位置を調整できます（丸いつまみをドラッグすると向きも変えられます）。触らなければそのままの配置で生成されます。
+          </p>
+        )}
 
         {basePhotos.length > 1 && (
           <div className="mt-3 flex flex-wrap gap-2">
