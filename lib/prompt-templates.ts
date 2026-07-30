@@ -3,7 +3,7 @@
  * so GeneratedPreview.promptVersion lets us tell which rows were made with an old prompt
  * and might be worth regenerating.
  */
-export const COMPOSITE_PROMPT_VERSION = "v12";
+export const COMPOSITE_PROMPT_VERSION = "v13";
 
 const SIZE_GUIDANCE_HEADER =
   "参考として、成人女性の頭の横幅（耳から耳まで）はおよそ14〜16cmです。この基準に対して、";
@@ -96,7 +96,8 @@ export function buildCompositePrompt(
     lines.push(
       `${layoutImg}枚目の画像は、管理者が実際に生成してほしい大きさ・位置を、実物の採寸データから計算して配置した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
         `${layoutImg}枚目に写っているアクセサリーの大きさ・位置は目安ではなく、正確な採寸に基づく確定値です。他のサイズ情報（実物サイズやサイズ参考写真、頭の横幅の目安など）は一切参照せず、${layoutImg}枚目に写っている大きさ・位置をピクセル単位でそのまま維持してください。` +
-        `あなたの仕事は大きさや位置を判断し直すことではなく、${layoutImg}枚目に写っている輪郭線の内側を、そのままの大きさ・そのままの位置で写実的に描き直すことだけです。少しでも拡大・縮小・移動すると失敗とみなします。`
+        `あなたの仕事は大きさや位置を判断し直すことではなく、${layoutImg}枚目に写っている輪郭線の内側を、そのままの大きさ・そのままの位置で写実的に描き直すことだけです。少しでも拡大・縮小・移動すると失敗とみなします。` +
+        `ただし例外が1つあります：${layoutImg}枚目にコーム・ピン・クリップなどの装着部分（金属や樹脂の針金・土台）が写り込んでいても、その部分は上記の「そのまま維持」の対象外です。装着部分は大きさ・位置に関わらず常に完全に非表示にし、花やリボンなどの装飾部分だけを描いてください。`
     );
   }
 
@@ -117,7 +118,7 @@ export function buildCompositePrompt(
   return lines.join("\n");
 }
 
-export const MULTI_COMPOSITE_PROMPT_VERSION = "v12";
+export const MULTI_COMPOSITE_PROMPT_VERSION = "v13";
 
 export function buildMultiPartCompositePrompt(
   attachmentZone: string,
@@ -170,7 +171,8 @@ export function buildMultiPartCompositePrompt(
     lines.push(
       `${layoutImg}枚目の画像は、お客様が各パーツをどこにどの向きで配置したいかを指定した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
         `${layoutImg}枚目に示された各パーツの位置関係・向きを最優先の基準とし、上記の「重ねすぎず散らして配置する」という一般的な指示より${layoutImg}枚目の指定を優先してください。位置・向きはこの下書きに従いつつ、仕上がりだけを写実的で自然なものにしてください。` +
-        `ただし${layoutImg}枚目に写っている各パーツの「大きさ」は必ずしも正確とは限らないため、大きさの判断は各パーツについて別途記載した実物サイズ・サイズ参考写真を優先し、位置・向きのみを${layoutImg}枚目から読み取ってください。`
+        `ただし${layoutImg}枚目に写っている各パーツの「大きさ」は必ずしも正確とは限らないため、大きさの判断は各パーツについて別途記載した実物サイズ・サイズ参考写真を優先し、位置・向きのみを${layoutImg}枚目から読み取ってください。` +
+        `また、${layoutImg}枚目にコーム・ピン・クリップなどの装着部分（金属や樹脂の針金・土台）が写り込んでいても、それは無視してください。装着部分は下記の指示どおり常に完全に非表示にし、花やリボンなどの装飾部分だけを描いてください。`
     );
   }
 
