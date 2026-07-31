@@ -118,7 +118,11 @@ export async function generateSoloPreviewsForPart(partId: string) {
 export async function generateSingleSoloPreview(
   partId: string,
   basePhotoId: string,
-  layout?: { bytes: Uint8Array; contentType: string; xPercent?: number; yPercent?: number; widthPercent?: number }
+  layout?: { bytes: Uint8Array; contentType: string; xPercent?: number; yPercent?: number; widthPercent?: number },
+  // Explicit "use this exact preview as the scale exemplar" override, from the admin clicking
+  // "これを見本に他を再生成" — bypasses the automatic approved-only lookup below, since the whole
+  // point is to let her point at a preview that looks right before it's been formally approved.
+  exemplarPreviewIdOverride?: string
 ) {
   const [part, basePhoto] = await Promise.all([
     db.part.findUniqueOrThrow({ where: { id: partId } }),
@@ -152,19 +156,25 @@ export async function generateSingleSoloPreview(
       // a color variant registered via "既存パーツから複製") so a brand-new color that has no
       // approved result of its own yet can still borrow one from a sibling color — preferring a
       // sibling's result on this exact base photo (same crop/hairstyle) when available.
-      const familyRootId = part.copiedFromPartId ?? part.id;
-      const familyCandidates = await db.partSoloPreview.findMany({
-        where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
-        orderBy: { generatedAt: "desc" },
-      });
-      // This exact part's own approved sibling (same design/color, just a different base photo)
-      // is the most relevant reference; a same-base-photo match from another color in the family
-      // is the next best (same crop/composition); anything else in the family is a last resort.
-      const approvedSibling =
-        familyCandidates.find((c) => c.partId === partId && c.basePhotoId !== basePhotoId) ??
-        familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
-        familyCandidates.find((c) => c.partId !== partId) ??
-        familyCandidates.find((c) => c.basePhotoId !== basePhotoId);
+      let approvedSibling: { imageUrl: string | null } | null = null;
+      if (exemplarPreviewIdOverride) {
+        approvedSibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
+      } else {
+        const familyRootId = part.copiedFromPartId ?? part.id;
+        const familyCandidates = await db.partSoloPreview.findMany({
+          where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
+          orderBy: { generatedAt: "desc" },
+        });
+        // This exact part's own approved sibling (same design/color, just a different base photo)
+        // is the most relevant reference; a same-base-photo match from another color in the family
+        // is the next best (same crop/composition); anything else in the family is a last resort.
+        approvedSibling =
+          familyCandidates.find((c) => c.partId === partId && c.basePhotoId !== basePhotoId) ??
+          familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
+          familyCandidates.find((c) => c.partId !== partId) ??
+          familyCandidates.find((c) => c.basePhotoId !== basePhotoId) ??
+          null;
+      }
       const crossPhotoExemplar = approvedSibling?.imageUrl ? await fetchImageBytes(approvedSibling.imageUrl) : null;
 
       if (hasManualLayout) {

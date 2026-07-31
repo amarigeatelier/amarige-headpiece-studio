@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { generateSoloPreviewsForPart, activatePart, deactivatePart } from "@/lib/actions/parts";
-import { approveSoloPreview, rejectSoloPreview, regenerateSoloPreview } from "@/lib/actions/part-previews";
+import { approveSoloPreview, rejectSoloPreview, regenerateSoloPreview, regenerateOthersUsingThisAsExemplar } from "@/lib/actions/part-previews";
 import DeletePartButton from "../DeletePartButton";
 import SubmitButton from "../../SubmitButton";
 import PartSizer from "../PartSizer";
@@ -111,6 +111,16 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
                   </SubmitButton>
                 </form>
               </div>
+              {part.soloPreviews.length > 1 && (
+                <form action={regenerateOthersUsingThisAsExemplar.bind(null, preview.id)} className="mt-2">
+                  <SubmitButton
+                    pendingLabel="生成中..."
+                    className="w-full rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 disabled:opacity-40"
+                  >
+                    これを見本に他の写真を再生成
+                  </SubmitButton>
+                </form>
+              )}
               <PartSizer
                 partId={part.id}
                 basePhotoId={preview.basePhotoId}
