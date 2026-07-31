@@ -140,46 +140,64 @@ export async function generateSingleSoloPreview(
     let draftYPercent: number | null = null;
     let draftWidthPercent: number | null = null;
 
-    if (hasManualLayout) {
-      // Admin manually placed this via PartSizer — its client-drawn draft already has the cutout
-      // pasted at the chosen size/position with the background stripped. We only need to add an
-      // undownsized shape reference alongside it (see buildBlendPrompt for why).
-      const cutout = await fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl);
-      const shapeReferenceBytes = await stripBackgroundFromCutout(cutout.bytes);
-      result = await composePreview({
-        mode: "blend",
-        draftBytes: layout!.bytes,
-        draftMimeType: layout!.contentType,
-        shapeReferenceBytes,
-        shapeReferenceMimeType: "image/png",
+    if (hasManualLayout || calibratedWidthPercent != null) {
+      // The deterministic size/position is mathematically correct, but Gemini's blend step still
+      // has real call-to-call variance on top of it (verified directly: an identical, provably-
+      // correct draft produced a visibly different size on a second attempt). When this exact part
+      // already has an approved result on a different base photo, use it as an extra real-photo
+      // scale anchor — the same "show, don't just tell" principle that made the shape reference fix
+      // the design-fidelity problem, applied to size consistency instead.
+      const approvedSibling = await db.partSoloPreview.findFirst({
+        where: { partId, status: "approved", basePhotoId: { not: basePhotoId } },
+        orderBy: { generatedAt: "desc" },
       });
-      draftXPercent = layout!.xPercent!;
-      draftYPercent = layout!.yPercent!;
-      draftWidthPercent = layout!.widthPercent!;
-    } else if (calibratedWidthPercent != null) {
-      const [cutout, base] = await Promise.all([
-        fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
-        fetchImageBytes(basePhoto.imageUrl),
-      ]);
-      const xPercent = basePhoto.defaultAttachmentXPercent ?? 50;
-      const yPercent = basePhoto.defaultAttachmentYPercent ?? 25;
-      const { draftBytes, shapeReferenceBytes } = await buildDeterministicDraft(
-        base.bytes,
-        cutout.bytes,
-        calibratedWidthPercent,
-        xPercent,
-        yPercent
-      );
-      result = await composePreview({
-        mode: "blend",
-        draftBytes,
-        draftMimeType: "image/png",
-        shapeReferenceBytes,
-        shapeReferenceMimeType: "image/png",
-      });
-      draftXPercent = xPercent;
-      draftYPercent = yPercent;
-      draftWidthPercent = calibratedWidthPercent;
+      const crossPhotoExemplar = approvedSibling?.imageUrl ? await fetchImageBytes(approvedSibling.imageUrl) : null;
+
+      if (hasManualLayout) {
+        // Admin manually placed this via PartSizer — its client-drawn draft already has the cutout
+        // pasted at the chosen size/position with the background stripped. We only need to add an
+        // undownsized shape reference alongside it (see buildBlendPrompt for why).
+        const cutout = await fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl);
+        const shapeReferenceBytes = await stripBackgroundFromCutout(cutout.bytes);
+        result = await composePreview({
+          mode: "blend",
+          draftBytes: layout!.bytes,
+          draftMimeType: layout!.contentType,
+          shapeReferenceBytes,
+          shapeReferenceMimeType: "image/png",
+          crossPhotoExemplarBytes: crossPhotoExemplar?.bytes,
+          crossPhotoExemplarMimeType: crossPhotoExemplar?.contentType,
+        });
+        draftXPercent = layout!.xPercent!;
+        draftYPercent = layout!.yPercent!;
+        draftWidthPercent = layout!.widthPercent!;
+      } else {
+        const [cutout, base] = await Promise.all([
+          fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
+          fetchImageBytes(basePhoto.imageUrl),
+        ]);
+        const xPercent = basePhoto.defaultAttachmentXPercent ?? 50;
+        const yPercent = basePhoto.defaultAttachmentYPercent ?? 25;
+        const { draftBytes, shapeReferenceBytes } = await buildDeterministicDraft(
+          base.bytes,
+          cutout.bytes,
+          calibratedWidthPercent!,
+          xPercent,
+          yPercent
+        );
+        result = await composePreview({
+          mode: "blend",
+          draftBytes,
+          draftMimeType: "image/png",
+          shapeReferenceBytes,
+          shapeReferenceMimeType: "image/png",
+          crossPhotoExemplarBytes: crossPhotoExemplar?.bytes,
+          crossPhotoExemplarMimeType: crossPhotoExemplar?.contentType,
+        });
+        draftXPercent = xPercent;
+        draftYPercent = yPercent;
+        draftWidthPercent = calibratedWidthPercent;
+      }
     } else {
       // Legacy fallback for parts or base photos without a real-world cm measurement registered
       // yet — let Gemini guess scale from text/coin/exemplar hints, as before calibration existed.

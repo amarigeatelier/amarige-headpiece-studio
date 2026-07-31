@@ -54,6 +54,13 @@ export type CompositeBlendInput = {
   // hard-to-read size in the draft at their correct real-world scale.
   shapeReferenceBytes?: Uint8Array;
   shapeReferenceMimeType?: string;
+  // An already-approved result for the SAME part on a DIFFERENT base photo — the deterministic
+  // draft's size is mathematically correct, but Gemini's blend step still has some size variance
+  // from call to call (observed directly: two blend calls from an identical, provably-correct
+  // draft produced visibly different sizes). Showing a confirmed-good real photo of this exact
+  // accessory at true scale gives Gemini a second, concrete anchor beyond the abstract cm math.
+  crossPhotoExemplarBytes?: Uint8Array;
+  crossPhotoExemplarMimeType?: string;
 };
 
 export type CompositeInput = CompositeFromScratchInput | CompositeBlendInput;
@@ -152,10 +159,14 @@ async function generateWithRetry(prompt: string, images: ImagePart[], promptVers
 export async function composePreview(input: CompositeInput): Promise<CompositeResult> {
   if (input.mode === "blend") {
     const hasShapeReference = Boolean(input.shapeReferenceBytes && input.shapeReferenceMimeType);
-    const prompt = buildBlendPrompt(hasShapeReference);
+    const hasCrossPhotoExemplar = Boolean(input.crossPhotoExemplarBytes && input.crossPhotoExemplarMimeType);
+    const prompt = buildBlendPrompt(hasShapeReference, hasCrossPhotoExemplar);
     const images: ImagePart[] = [{ mimeType: input.draftMimeType, base64: toBase64(input.draftBytes) }];
     if (hasShapeReference) {
       images.push({ mimeType: input.shapeReferenceMimeType!, base64: toBase64(input.shapeReferenceBytes!) });
+    }
+    if (hasCrossPhotoExemplar) {
+      images.push({ mimeType: input.crossPhotoExemplarMimeType!, base64: toBase64(input.crossPhotoExemplarBytes!) });
     }
     return generateWithRetry(prompt, images, BLEND_PROMPT_VERSION);
   }
