@@ -1,9 +1,15 @@
 "use client";
 
+import { useState } from "react";
+
 // Lets Saki pick an existing part (e.g. the same flower in a different color) and pre-fill this
 // form's text/number fields from it, so registering a color variant doesn't mean re-measuring and
 // re-typing the same real-world cm figure and other metadata every time. Deliberately does NOT
 // copy color or any of the image files — those are the actual reason a new Part exists.
+//
+// The selected source part's id is also submitted as `copiedFromPartId` (hidden field) so the new
+// Part remembers this lineage — used later by generateSingleSoloPreview to let an unapproved color
+// variant borrow an approved sibling's real photo as a size exemplar, before it has one of its own.
 type CopySource = {
   id: string;
   description: string | null;
@@ -20,6 +26,8 @@ function setFieldValue(form: HTMLFormElement, name: string, value: string) {
 }
 
 export default function CopyFromExistingPart({ parts }: { parts: (CopySource & { name: string })[] }) {
+  const [selectedId, setSelectedId] = useState("");
+
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const source = parts.find((p) => p.id === e.target.value);
     if (!source) return;
@@ -33,7 +41,7 @@ export default function CopyFromExistingPart({ parts }: { parts: (CopySource & {
     setFieldValue(form, "attachmentStyle", source.attachmentStyle);
     setFieldValue(form, "displayCategory", source.displayCategory ?? "");
 
-    e.target.value = "";
+    setSelectedId(source.id);
   }
 
   if (parts.length === 0) return null;
@@ -41,7 +49,8 @@ export default function CopyFromExistingPart({ parts }: { parts: (CopySource & {
   return (
     <div className="rounded border border-dashed border-neutral-300 bg-neutral-50 p-3">
       <label className="mb-1 block text-sm text-neutral-600">既存パーツから複製（任意）</label>
-      <select defaultValue="" onChange={handleChange} className="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm">
+      <input type="hidden" name="copiedFromPartId" value={selectedId} />
+      <select value={selectedId} onChange={handleChange} className="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm">
         <option value="" disabled>
           選択すると下の項目に値をコピーします
         </option>

@@ -36,6 +36,7 @@ export async function createPart(formData: FormData) {
   const color = String(formData.get("color") ?? "").trim() || null;
   const addOnPriceJpy = Number(formData.get("addOnPriceJpy"));
   const attachmentStyle = String(formData.get("attachmentStyle") ?? "") as AttachmentStyle;
+  const copiedFromPartId = String(formData.get("copiedFromPartId") ?? "").trim() || null;
   const file = formData.get("cutout") as File | null;
   const sizeRefFile = formData.get("sizeReference") as File | null;
   const compositingFile = formData.get("compositingImage") as File | null;
@@ -84,6 +85,7 @@ export async function createPart(formData: FormData) {
       sizeReferenceImageUrl,
       compositingImageUrl,
       attachmentStyle,
+      copiedFromPartId,
       status: "draft",
     },
   });
@@ -143,14 +145,22 @@ export async function generateSingleSoloPreview(
     if (hasManualLayout || calibratedWidthPercent != null) {
       // The deterministic size/position is mathematically correct, but Gemini's blend step still
       // has real call-to-call variance on top of it (verified directly: an identical, provably-
-      // correct draft produced a visibly different size on a second attempt). When this exact part
-      // already has an approved result on a different base photo, use it as an extra real-photo
-      // scale anchor — the same "show, don't just tell" principle that made the shape reference fix
-      // the design-fidelity problem, applied to size consistency instead.
-      const approvedSibling = await db.partSoloPreview.findFirst({
-        where: { partId, status: "approved", basePhotoId: { not: basePhotoId } },
+      // correct draft produced a visibly different size on a second attempt). Use an approved real
+      // photo of this exact accessory as an extra size anchor — the same "show, don't just tell"
+      // principle that made the shape reference fix the design-fidelity problem, applied to size
+      // consistency instead. Also looks at "family" parts (this part's copiedFromPartId chain, e.g.
+      // a color variant registered via "既存パーツから複製") so a brand-new color that has no
+      // approved result of its own yet can still borrow one from a sibling color — preferring a
+      // sibling's result on this exact base photo (same crop/hairstyle) when available.
+      const familyRootId = part.copiedFromPartId ?? part.id;
+      const familyCandidates = await db.partSoloPreview.findMany({
+        where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
         orderBy: { generatedAt: "desc" },
       });
+      const approvedSibling =
+        familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
+        familyCandidates.find((c) => c.partId !== partId) ??
+        familyCandidates.find((c) => c.basePhotoId !== basePhotoId);
       const crossPhotoExemplar = approvedSibling?.imageUrl ? await fetchImageBytes(approvedSibling.imageUrl) : null;
 
       if (hasManualLayout) {

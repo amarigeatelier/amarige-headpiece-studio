@@ -69,6 +69,14 @@ model Part {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
+  // Set when this part was registered via "既存パーツから複製" (e.g. a color variant of the same
+  // physical accessory). Used to let a still-unapproved color variant borrow an approved sibling's
+  // real photo as a size exemplar for AI compositing, even before it has any approved result of
+  // its own — see generateSingleSoloPreview in lib/actions/parts.ts.
+  copiedFromPartId String?
+  copiedFromPart   Part?   @relation("PartCopiedFrom", fields: [copiedFromPartId], references: [id], onDelete: SetNull)
+  copiedToParts    Part[]  @relation("PartCopiedFrom")
+
   soloPreviews    PartSoloPreview[]
   orderItemParts  OrderItemPart[]
 }
