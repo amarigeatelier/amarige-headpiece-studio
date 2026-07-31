@@ -1,17 +1,23 @@
 import { db } from "@/lib/db";
 import { createPart } from "@/lib/actions/parts";
 import SubmitButton from "../../SubmitButton";
+import CopyFromExistingPart from "../CopyFromExistingPart";
 
 export default async function NewPartPage() {
-  const [categories, colors] = await Promise.all([
+  const [categories, colors, existingParts] = await Promise.all([
     db.part.findMany({ where: { displayCategory: { not: null } }, select: { displayCategory: true }, distinct: ["displayCategory"] }),
     db.part.findMany({ where: { color: { not: null } }, select: { color: true }, distinct: ["color"] }),
+    db.part.findMany({
+      select: { id: true, name: true, description: true, sizeNote: true, realWidthCm: true, addOnPriceJpy: true, attachmentStyle: true, displayCategory: true },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
       <h1 className="mb-6 text-xl font-semibold">新規パーツを追加</h1>
       <form action={createPart} className="space-y-4 rounded-lg border border-neutral-200 bg-white p-6">
+        <CopyFromExistingPart parts={existingParts} />
         <div>
           <label className="mb-1 block text-sm text-neutral-600">パーツ名</label>
           <input name="name" required className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" />
