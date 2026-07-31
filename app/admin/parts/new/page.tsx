@@ -19,6 +19,28 @@ export default async function NewPartPage() {
       <form action={createPart} className="space-y-4 rounded-lg border border-neutral-200 bg-white p-6">
         <CopyFromExistingPart parts={existingParts} />
         <div>
+          <label className="mb-1 block text-sm text-neutral-600">カットアウト写真（背景シンプル、長辺2000px以上推奨）</label>
+          <input type="file" name="cutout" accept="image/*" required className="w-full text-sm" />
+          <p className="mt-1 text-xs text-neutral-500">
+            お客様の商品一覧にそのまま表示される写真です。硬貨など余計なものは写さないでください。
+          </p>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm text-neutral-600">サイズ参考写真（任意）</label>
+          <input type="file" name="sizeReference" accept="image/*" className="w-full text-sm" />
+          <p className="mt-1 text-xs text-neutral-500">
+            同じパーツを500円玉などの硬貨と並べて撮った写真です。AIがサイズを正確に読み取るためだけに使い、お客様には表示されません。サイズ感のブレを大きく減らせます。
+          </p>
+        </div>
+        <div>
+          <label className="mb-1 block text-sm text-neutral-600">生成用写真・ピンなし（任意）</label>
+          <input type="file" name="compositingImage" accept="image/*" className="w-full text-sm" />
+          <p className="mt-1 text-xs text-neutral-500">
+            カットアウト写真からコーム・ピンなどの装着部分だけを手動で消した写真です。登録すると、AI生成時はこちらを優先的に使用します（お客様には表示されません、カットアウト写真がそのまま商品一覧に表示されます）。
+            未登録の場合はカットアウト写真がそのままAI生成にも使われます。
+          </p>
+        </div>
+        <div>
           <label className="mb-1 block text-sm text-neutral-600">パーツ名</label>
           <input name="name" required className="w-full rounded border border-neutral-300 px-3 py-2 text-sm" />
         </div>
@@ -66,28 +88,6 @@ export default async function NewPartPage() {
             <option value="clip">クリップ</option>
             <option value="tiara">ティアラ</option>
           </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-sm text-neutral-600">カットアウト写真（背景シンプル、長辺2000px以上推奨）</label>
-          <input type="file" name="cutout" accept="image/*" required className="w-full text-sm" />
-          <p className="mt-1 text-xs text-neutral-500">
-            お客様の商品一覧にそのまま表示される写真です。硬貨など余計なものは写さないでください。
-          </p>
-        </div>
-        <div>
-          <label className="mb-1 block text-sm text-neutral-600">サイズ参考写真（任意）</label>
-          <input type="file" name="sizeReference" accept="image/*" className="w-full text-sm" />
-          <p className="mt-1 text-xs text-neutral-500">
-            同じパーツを500円玉などの硬貨と並べて撮った写真です。AIがサイズを正確に読み取るためだけに使い、お客様には表示されません。サイズ感のブレを大きく減らせます。
-          </p>
-        </div>
-        <div>
-          <label className="mb-1 block text-sm text-neutral-600">生成用写真・ピンなし（任意）</label>
-          <input type="file" name="compositingImage" accept="image/*" className="w-full text-sm" />
-          <p className="mt-1 text-xs text-neutral-500">
-            カットアウト写真からコーム・ピンなどの装着部分だけを手動で消した写真です。登録すると、AI生成時はこちらを優先的に使用します（お客様には表示されません、カットアウト写真がそのまま商品一覧に表示されます）。
-            未登録の場合はカットアウト写真がそのままAI生成にも使われます。
-          </p>
         </div>
         <p className="text-xs text-neutral-500">
           追加すると、対応するアクティブなモデル写真すべてに対して単体合成プレビュー（管理者QA用）が自動生成されます。
