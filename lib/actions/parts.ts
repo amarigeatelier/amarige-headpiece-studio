@@ -12,7 +12,9 @@ import {
   fetchImageBytes,
 } from "@/lib/storage";
 import { composePreview } from "@/lib/gemini";
-import { COMPOSITE_PROMPT_VERSION, describeAdjustment } from "@/lib/prompt-templates";
+import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
+import { buildDeterministicDraft, stripBackgroundFromCutout } from "@/lib/deterministic-composite";
+import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT } from "@/lib/sizing-constants";
 import type { AttachmentStyle } from "@prisma/client";
 
 function slugify(name: string): string {
@@ -116,44 +118,78 @@ export async function generateSingleSoloPreview(
   basePhotoId: string,
   layout?: { bytes: Uint8Array; contentType: string; xPercent?: number; yPercent?: number; widthPercent?: number }
 ) {
-  const [part, basePhoto, existing] = await Promise.all([
+  const [part, basePhoto] = await Promise.all([
     db.part.findUniqueOrThrow({ where: { id: partId } }),
     db.modelBasePhoto.findUniqueOrThrow({ where: { id: basePhotoId } }),
-    db.partSoloPreview.findUnique({ where: { partId_basePhotoId: { partId, basePhotoId } } }),
   ]);
 
   try {
-    const hasNewLayout = layout?.xPercent !== undefined && layout?.yPercent !== undefined && layout?.widthPercent !== undefined;
-    const hasPreviousLayout =
-      existing?.layoutXPercent != null && existing?.layoutYPercent != null && existing?.layoutWidthPercent != null;
+    const hasManualLayout = layout?.xPercent !== undefined && layout?.yPercent !== undefined && layout?.widthPercent !== undefined;
+
+    // When both the part and the base photo have a real-world cm measurement, we can compute the
+    // correct size ourselves instead of asking Gemini to judge scale — verified far more reliable
+    // (a "shrink to 5%" text instruction still rendered oversized in testing; a deterministically
+    // pasted 5%-wide draft, with Gemini only asked to blend it in, rendered correctly).
+    const calibratedWidthPercent =
+      part.realWidthCm != null && basePhoto.realWidthCm != null
+        ? Math.min(MAX_WIDTH_PERCENT, Math.max(MIN_WIDTH_PERCENT, (part.realWidthCm / basePhoto.realWidthCm) * 100))
+        : null;
 
     let result: Awaited<ReturnType<typeof composePreview>>;
+    let draftXPercent: number | null = null;
+    let draftYPercent: number | null = null;
+    let draftWidthPercent: number | null = null;
 
-    if (hasNewLayout && existing?.imageUrl && hasPreviousLayout) {
-      // A previous manually-placed generation exists — edit that known-good photo directly
-      // instead of recomposing from a crude draft, which is far more reliable for small changes.
-      const previous = await fetchImageBytes(existing.imageUrl);
-      const adjustmentDescription = describeAdjustment(
-        layout!.xPercent! - existing.layoutXPercent!,
-        layout!.yPercent! - existing.layoutYPercent!,
-        (layout!.widthPercent! / existing.layoutWidthPercent!) * 100
+    if (hasManualLayout) {
+      // Admin manually placed this via PartSizer — its client-drawn draft already has the cutout
+      // pasted at the chosen size/position with the background stripped. We only need to add an
+      // undownsized shape reference alongside it (see buildBlendPrompt for why).
+      const cutout = await fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl);
+      const shapeReferenceBytes = await stripBackgroundFromCutout(cutout.bytes);
+      result = await composePreview({
+        mode: "blend",
+        draftBytes: layout!.bytes,
+        draftMimeType: layout!.contentType,
+        shapeReferenceBytes,
+        shapeReferenceMimeType: "image/png",
+      });
+      draftXPercent = layout!.xPercent!;
+      draftYPercent = layout!.yPercent!;
+      draftWidthPercent = layout!.widthPercent!;
+    } else if (calibratedWidthPercent != null) {
+      const [cutout, base] = await Promise.all([
+        fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
+        fetchImageBytes(basePhoto.imageUrl),
+      ]);
+      const xPercent = basePhoto.defaultAttachmentXPercent ?? 50;
+      const yPercent = basePhoto.defaultAttachmentYPercent ?? 25;
+      const { draftBytes, shapeReferenceBytes } = await buildDeterministicDraft(
+        base.bytes,
+        cutout.bytes,
+        calibratedWidthPercent,
+        xPercent,
+        yPercent
       );
       result = await composePreview({
-        mode: "adjust",
-        previousResultBytes: previous.bytes,
-        previousResultMimeType: previous.contentType,
-        adjustmentDescription,
+        mode: "blend",
+        draftBytes,
+        draftMimeType: "image/png",
+        shapeReferenceBytes,
+        shapeReferenceMimeType: "image/png",
       });
+      draftXPercent = xPercent;
+      draftYPercent = yPercent;
+      draftWidthPercent = calibratedWidthPercent;
     } else {
+      // Legacy fallback for parts or base photos without a real-world cm measurement registered
+      // yet — let Gemini guess scale from text/coin/exemplar hints, as before calibration existed.
       const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
-
       const [cutout, base, sizeReference, exemplar] = await Promise.all([
         fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
         fetchImageBytes(basePhoto.imageUrl),
         part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
         storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
       ]);
-
       result = await composePreview({
         mode: "compose",
         cutoutBytes: cutout.bytes,
@@ -166,17 +202,19 @@ export async function generateSingleSoloPreview(
         sizeReferenceMimeType: sizeReference?.contentType,
         exemplarBytes: exemplar?.bytes,
         exemplarMimeType: exemplar?.contentType,
-        layoutBytes: layout?.bytes,
-        layoutMimeType: layout?.contentType,
       });
     }
 
     const imageUrl = await uploadImage(soloPreviewImagePath(partId, basePhotoId), result.imageBytes, result.mimeType);
 
+    // Keep PartSizer's "% of the currently displayed image" baseline honest: persist whatever
+    // size/position this generation actually used (manual or auto-calibrated), or clear it when
+    // neither applied (legacy Gemini-guessed path) so a stale number never lingers disconnected
+    // from what's actually on screen.
     const layoutPercents =
-      layout?.xPercent !== undefined && layout?.yPercent !== undefined && layout?.widthPercent !== undefined
-        ? { layoutXPercent: layout.xPercent, layoutYPercent: layout.yPercent, layoutWidthPercent: layout.widthPercent }
-        : undefined;
+      draftXPercent !== null && draftYPercent !== null && draftWidthPercent !== null
+        ? { layoutXPercent: draftXPercent, layoutYPercent: draftYPercent, layoutWidthPercent: draftWidthPercent }
+        : { layoutXPercent: null, layoutYPercent: null, layoutWidthPercent: null };
 
     await db.partSoloPreview.upsert({
       where: { partId_basePhotoId: { partId, basePhotoId } },

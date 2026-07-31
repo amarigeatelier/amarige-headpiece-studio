@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { stripNearWhiteBackground } from "@/lib/strip-white-background";
+import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT, DEFAULT_WIDTH_PERCENT } from "@/lib/sizing-constants";
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -16,9 +17,6 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 const CLAMP_MIN = 3;
 const CLAMP_MAX = 97;
-const MIN_WIDTH_PERCENT = 5;
-const MAX_WIDTH_PERCENT = 60;
-const DEFAULT_WIDTH_PERCENT = 20;
 
 export default function PartSizer({
   partId,

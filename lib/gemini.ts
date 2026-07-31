@@ -4,8 +4,8 @@ import {
   buildCompositePrompt,
   MULTI_COMPOSITE_PROMPT_VERSION,
   buildMultiPartCompositePrompt,
-  ADJUSTMENT_PROMPT_VERSION,
-  buildAdjustmentPrompt,
+  BLEND_PROMPT_VERSION,
+  buildBlendPrompt,
 } from "./prompt-templates";
 
 const MODEL = "gemini-2.5-flash-image";
@@ -25,6 +25,9 @@ function getClient(): GoogleGenAI {
   return client;
 }
 
+// Legacy fallback for parts/base photos without a real-world cm measurement registered yet, where
+// lib/deterministic-composite.ts can't compute a target size — Gemini guesses scale from text/coin/
+// exemplar hints instead. Prefer CompositeBlendInput whenever calibration data is available.
 export type CompositeFromScratchInput = {
   mode: "compose";
   cutoutBytes: Uint8Array;
@@ -37,24 +40,23 @@ export type CompositeFromScratchInput = {
   sizeReferenceMimeType?: string;
   exemplarBytes?: Uint8Array;
   exemplarMimeType?: string;
-  // Admin-drawn rough draft (base photo + the cutout pasted at a manually chosen size/position) —
-  // sent as an extra reference image so an admin can directly override AI-guessed scale/placement.
-  layoutBytes?: Uint8Array;
-  layoutMimeType?: string;
 };
 
-// Edits an EXISTING photorealistic result instead of composing a new one from scratch — editing a
-// known-good photo is far more reliable than recomposing from a crude reference draft every time,
-// which was causing regenerations to drift position or drop the accessory entirely even for small
-// requested changes.
-export type CompositeAdjustmentInput = {
-  mode: "adjust";
-  previousResultBytes: Uint8Array;
-  previousResultMimeType: string;
-  adjustmentDescription: string;
+// The validated, preferred path: size/position are already decided (computed from real-world cm
+// measurements by lib/deterministic-composite.ts, not judged by Gemini) and baked into draftBytes.
+// Gemini's only job is photorealistic blending — see buildBlendPrompt for why this is far more
+// reliable than asking it to also decide scale, even with strongly-worded text instructions.
+export type CompositeBlendInput = {
+  mode: "blend";
+  draftBytes: Uint8Array;
+  draftMimeType: string;
+  // Undownsized copy of the cutout — keeps fine detail legible for parts that shrink to a small,
+  // hard-to-read size in the draft at their correct real-world scale.
+  shapeReferenceBytes?: Uint8Array;
+  shapeReferenceMimeType?: string;
 };
 
-export type CompositeInput = CompositeFromScratchInput | CompositeAdjustmentInput;
+export type CompositeInput = CompositeFromScratchInput | CompositeBlendInput;
 
 export type PartImageInput = {
   partId: string;
@@ -148,16 +150,19 @@ async function generateWithRetry(prompt: string, images: ImagePart[], promptVers
 
 /** Composites a single part cutout onto a single base photo — used for admin solo-QA previews. */
 export async function composePreview(input: CompositeInput): Promise<CompositeResult> {
-  if (input.mode === "adjust") {
-    const prompt = buildAdjustmentPrompt(input.adjustmentDescription);
-    const images: ImagePart[] = [{ mimeType: input.previousResultMimeType, base64: toBase64(input.previousResultBytes) }];
-    return generateWithRetry(prompt, images, ADJUSTMENT_PROMPT_VERSION);
+  if (input.mode === "blend") {
+    const hasShapeReference = Boolean(input.shapeReferenceBytes && input.shapeReferenceMimeType);
+    const prompt = buildBlendPrompt(hasShapeReference);
+    const images: ImagePart[] = [{ mimeType: input.draftMimeType, base64: toBase64(input.draftBytes) }];
+    if (hasShapeReference) {
+      images.push({ mimeType: input.shapeReferenceMimeType!, base64: toBase64(input.shapeReferenceBytes!) });
+    }
+    return generateWithRetry(prompt, images, BLEND_PROMPT_VERSION);
   }
 
   const hasSizeReference = Boolean(input.sizeReferenceBytes && input.sizeReferenceMimeType);
   const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
-  const hasLayout = Boolean(input.layoutBytes && input.layoutMimeType);
-  const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference, hasExemplar, hasLayout);
+  const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference, hasExemplar);
 
   const images: ImagePart[] = [{ mimeType: input.cutoutMimeType, base64: toBase64(input.cutoutBytes) }];
   if (hasSizeReference) {
@@ -165,9 +170,6 @@ export async function composePreview(input: CompositeInput): Promise<CompositeRe
   }
   if (hasExemplar) {
     images.push({ mimeType: input.exemplarMimeType!, base64: toBase64(input.exemplarBytes!) });
-  }
-  if (hasLayout) {
-    images.push({ mimeType: input.layoutMimeType!, base64: toBase64(input.layoutBytes!) });
   }
   images.push({ mimeType: input.baseMimeType, base64: toBase64(input.baseBytes) });
 

@@ -53,18 +53,19 @@ function exemplarInstruction(exemplarImg: number, modelImg: number): string {
   );
 }
 
+// Legacy fallback prompt for parts/base photos without a real-world cm measurement registered yet
+// (see CompositeFromScratchInput in lib/gemini.ts) — Gemini judges scale itself from text/coin/
+// exemplar hints. Prefer buildBlendPrompt whenever calibration data lets us compute size ourselves.
 export function buildCompositePrompt(
   attachmentZone: string,
   sizeNote?: string | null,
   hasSizeReference?: boolean,
-  hasExemplar?: boolean,
-  hasLayout?: boolean
+  hasExemplar?: boolean
 ): string {
   const productImg = 1;
   let next = 2;
   const refImg = hasSizeReference ? next++ : null;
   const exemplarImg = hasExemplar ? next++ : null;
-  const layoutImg = hasLayout ? next++ : null;
   const modelImg = next;
 
   const lines = [
@@ -78,32 +79,15 @@ export function buildCompositePrompt(
 
   if (refImg) {
     lines.push(
-      layoutImg
-        ? `${refImg}枚目の画像は、${productImg}枚目と同じヘアアクセサリーを硬貨や定規などサイズが分かる物と一緒に撮影した参考写真です。大きさの判断には使わないでください（大きさは後述する配置の下書きが確定値です）。${refImg}枚目に写っている硬貨・定規などの物体自体は最終的な合成結果には一切含めないでください。`
-        : `${refImg}枚目の画像は、${productImg}枚目と同じヘアアクセサリーを硬貨や定規などサイズが分かる物と一緒に撮影した「サイズ参考用」の写真です。実物サイズを正確に把握するためだけに使い、${refImg}枚目に写っている硬貨・定規などの物体自体は最終的な合成結果には一切含めないでください。`
+      `${refImg}枚目の画像は、${productImg}枚目と同じヘアアクセサリーを硬貨や定規などサイズが分かる物と一緒に撮影した「サイズ参考用」の写真です。実物サイズを正確に把握するためだけに使い、${refImg}枚目に写っている硬貨・定規などの物体自体は最終的な合成結果には一切含めないでください。`
     );
   }
 
   if (exemplarImg) {
-    lines.push(
-      layoutImg
-        ? `${exemplarImg}枚目の画像は、髪飾りが自然になじんで見えるお手本の完成例です。質感や馴染ませ方の参考にはしてよいですが、大きさの判断には使わないでください（大きさは後述する配置の下書きが確定値です）。`
-        : exemplarInstruction(exemplarImg, modelImg)
-    );
+    lines.push(exemplarInstruction(exemplarImg, modelImg));
   }
 
-  if (layoutImg) {
-    lines.push(
-      `${layoutImg}枚目の画像は、管理者が実際に生成してほしい大きさ・位置を、実物の採寸データから計算して配置した「配置の下書き」です（切り抜き画像をそのまま貼り付けただけの粗い見た目で、継ぎ目や貼り付け感は無視して構いません）。` +
-        `${layoutImg}枚目に写っているアクセサリーの大きさ・位置は目安ではなく、正確な採寸に基づく確定値です。他のサイズ情報（実物サイズやサイズ参考写真、頭の横幅の目安など）は一切参照せず、${layoutImg}枚目に写っている大きさ・位置をピクセル単位でそのまま維持してください。` +
-        `あなたの仕事は大きさや位置を判断し直すことではなく、${layoutImg}枚目に写っている輪郭線の内側を、そのままの大きさ・そのままの位置で写実的に描き直すことだけです。少しでも拡大・縮小・移動すると失敗とみなします。` +
-        `ただし例外が1つあります：${layoutImg}枚目にコーム・ピン・クリップなどの装着部分（金属や樹脂の針金・土台）が写り込んでいても、その部分は上記の「そのまま維持」の対象外です。装着部分は大きさ・位置に関わらず常に完全に非表示にし、花やリボンなどの装飾部分だけを描いてください。`
-    );
-  }
-
-  // 配置の下書き（layoutImg）がある場合、そこに写っている大きさが既に採寸から計算された確定値なので、
-  // cm目安やコイン参考写真ベースの縮尺指示は与えない（矛盾する指示になり、AIがどちらを優先すべきか迷う原因になる）。
-  if (!layoutImg && sizeNote) {
+  if (sizeNote) {
     const comparison = describeSizeComparison(sizeNote);
     lines.push(
       `${SIZE_GUIDANCE_HEADER}このヘアアクセサリーの実物サイズは「${sizeNote}」であることを正確に守って縮尺を合わせてください。` +
@@ -111,11 +95,52 @@ export function buildCompositePrompt(
     );
   }
 
-  if (!layoutImg && (sizeNote || refImg || exemplarImg)) {
+  if (sizeNote || refImg || exemplarImg) {
     lines.push(SIZE_GUIDANCE_FOOTER_BASE);
   }
 
   return lines.join("\n");
+}
+
+export const BLEND_PROMPT_VERSION = "v1";
+
+/**
+ * Prompt for the deterministic-composite pipeline (see lib/deterministic-composite.ts): the
+ * accessory's size/position is already computed exactly from real-world cm measurements and
+ * pasted into image 1, so Gemini's only job is making that composite look photorealistic —
+ * not judging scale at all, which text/coin/exemplar-based prompting proved unreliable at even
+ * with strong wording (verified: an explicit "shrink to 5%" instruction still rendered oversized).
+ *
+ * `hasShapeReference` — an undownsized copy of the cutout, since a part shrunk to its correct
+ * real-world size in image 1 can become too small to read accurately (a delicate flower spray
+ * was misread as a generic star shape without this). The extra "don't draw image 2 itself, it's
+ * reference only" instruction exists because an earlier version without it caused Gemini to render
+ * the accessory a second time at the reference photo's own (much larger) scale.
+ */
+export function buildBlendPrompt(hasShapeReference: boolean): string {
+  if (!hasShapeReference) {
+    return [
+      "この画像は、ヘアアクセサリーを既に正しい最終的な大きさ・位置に貼り付けた合成写真です（大きさ・位置は既に確定しており、変更の必要はありません）。",
+      "あなたの仕事は、この画像を自然な一枚の写真に見えるように仕上げることだけです：",
+      "・アクセサリーの縁を髪になじませ、境界線や貼り付けた感じ（不自然な輪郭・浮いた影）をなくす",
+      "・写真全体の光の当たり方・色味に合わせて、アクセサリーの陰影を自然に描き直す",
+      "・必要であれば、アクセサリーの一部に髪の毛が自然に重なっているように見せる",
+      "重要：アクセサリーの大きさ・位置・向き・デザイン・色は絶対に変更しないでください。モデルの顔・髪型・肌・背景・衣装も変更しないでください。",
+      "コーム・ピン・クリップなどの装着部分（金属や樹脂の針金・土台）が画像に写っていても、最終的な仕上がりには一切描かないでください。",
+    ].join("\n");
+  }
+  return [
+    "1枚目の画像は、ヘアアクセサリーを既に正しい最終的な大きさ・位置に貼り付けた合成写真です（大きさ・位置は既に確定しており、変更の必要はありません）。",
+    "2枚目の画像は、そのアクセサリー単体を大きく写した「デザイン確認用」の資料です。2枚目はあくまで形・色を確認するためだけのものであり、完成写真に登場する被写体ではありません。",
+    "あなたの仕事は、1枚目を自然な一枚の写真に見えるように仕上げることだけです：",
+    "・アクセサリーの縁を髪になじませ、境界線や貼り付けた感じ（不自然な輪郭・浮いた影）をなくす",
+    "・写真全体の光の当たり方・色味に合わせて、アクセサリーの陰影を自然に描き直す",
+    "・必要であれば、アクセサリーの一部に髪の毛が自然に重なっているように見せる",
+    "・アクセサリーの細かい形（花や葉の形・配置・色）が1枚目では小さくて潰れて見えても、2枚目を参考に、同じデザインを保ったまま正確に描いてください",
+    "重要：完成写真に写るアクセサリーは、1枚目に写っている、その1箇所・その大きさのものだけです。2枚目の画像そのもの、または2枚目のような大きな複製を、完成写真のどこにも新たに描き加えないでください。頭の中に2つ以上のアクセサリーが写ってはいけません。",
+    "アクセサリーの大きさ・位置は1枚目のまま絶対に変更しないでください。モデルの顔・髪型・肌・背景・衣装も変更しないでください。",
+    "コーム・ピン・クリップなどの装着部分（金属や樹脂の針金・土台）がどちらかの画像に写っていても、最終的な仕上がりには一切描かないでください。",
+  ].join("\n");
 }
 
 export const MULTI_COMPOSITE_PROMPT_VERSION = "v13";
@@ -191,60 +216,4 @@ export function buildMultiPartCompositePrompt(
   );
 
   return lines.join("\n");
-}
-
-/**
- * Turns a position delta (in % of the photo's width/height) into a short natural-language
- * direction + magnitude phrase, e.g. "右下にはっきりと". Returns null when the delta is
- * negligible (< 1%), so a no-op drag doesn't produce a spurious instruction.
- */
-function describePositionDelta(dxPercent: number, dyPercent: number): string | null {
-  const magnitude = Math.max(Math.abs(dxPercent), Math.abs(dyPercent));
-  if (magnitude < 1) return null;
-  const magnitudeWord = magnitude < 3 ? "ごくわずかに" : magnitude < 8 ? "少し" : magnitude < 18 ? "はっきりと" : "大きく";
-  const horizontal = dxPercent > 1 ? "右" : dxPercent < -1 ? "左" : "";
-  const vertical = dyPercent > 1 ? "下" : dyPercent < -1 ? "上" : "";
-  const direction = [horizontal, vertical].filter(Boolean).join("");
-  return `${direction}に${magnitudeWord}`;
-}
-
-/**
- * Describes the requested change from the previous generation as a short instruction, e.g.
- * "位置を右にはっきりと動かす、大きさを元の70%に縮小する。" Returns a "no change" phrase when
- * both deltas are negligible, so a same-config regenerate still reads as a valid instruction
- * (asking only for a fresh realistic render) rather than an empty one.
- */
-export function describeAdjustment(dxPercent: number, dyPercent: number, widthRatioPercent: number | null): string {
-  const clauses: string[] = [];
-
-  const positionPhrase = describePositionDelta(dxPercent, dyPercent);
-  if (positionPhrase) clauses.push(`位置を${positionPhrase}動かす`);
-
-  if (widthRatioPercent != null && Math.abs(widthRatioPercent - 100) >= 2) {
-    const rounded = Math.round(widthRatioPercent);
-    clauses.push(`大きさを元の${rounded}%に${widthRatioPercent < 100 ? "縮小" : "拡大"}する`);
-  }
-
-  if (clauses.length === 0) {
-    return "位置・大きさは変更しない。写実的な仕上がりを保ったまま作り直す。";
-  }
-  return clauses.join("、") + "。";
-}
-
-export const ADJUSTMENT_PROMPT_VERSION = "v1";
-
-/**
- * Prompt for adjusting an EXISTING, already-photorealistic composite result rather than composing
- * a new one from scratch. Editing a specific small detail on a real photo is a task generative
- * image models handle far more reliably than reconstructing a whole composition from a crude
- * reference draft every time — this is the fix for regenerations being unstable (drifting position,
- * or the accessory disappearing entirely) even when the requested change was small.
- */
-export function buildAdjustmentPrompt(adjustmentDescription: string): string {
-  return [
-    "1枚目の画像は、ヘアアクセサリーを合成済みの写真です。この写真に対して、次の変更だけを加えてください：",
-    adjustmentDescription,
-    "指定した変更以外は一切変更しないでください。アクセサリーのデザイン・向き・色、モデルの顔・髪型・肌・背景・衣装、光の当たり方や色味、写真全体の雰囲気は、元の写真と完全に同じに保ってください。",
-    "新しい構図をゼロから考え直すのではなく、1枚目の写真をそのまま少しだけ編集するイメージで生成してください。",
-  ].join("\n");
 }
