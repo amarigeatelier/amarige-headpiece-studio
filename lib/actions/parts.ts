@@ -13,7 +13,7 @@ import {
 } from "@/lib/storage";
 import { composePreview } from "@/lib/gemini";
 import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
-import { buildDeterministicDraft, stripBackgroundFromCutout } from "@/lib/deterministic-composite";
+import { buildDeterministicDraft, stripBackgroundFromCutout, cropAroundAccessory } from "@/lib/deterministic-composite";
 import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT } from "@/lib/sizing-constants";
 import type { AttachmentStyle } from "@prisma/client";
 
@@ -156,7 +156,12 @@ export async function generateSingleSoloPreview(
       // a color variant registered via "既存パーツから複製") so a brand-new color that has no
       // approved result of its own yet can still borrow one from a sibling color — preferring a
       // sibling's result on this exact base photo (same crop/hairstyle) when available.
-      let approvedSibling: { imageUrl: string | null } | null = null;
+      let approvedSibling: {
+        imageUrl: string | null;
+        layoutXPercent: number | null;
+        layoutYPercent: number | null;
+        layoutWidthPercent: number | null;
+      } | null = null;
       if (exemplarPreviewIdOverride) {
         approvedSibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
       } else {
@@ -175,7 +180,25 @@ export async function generateSingleSoloPreview(
           familyCandidates.find((c) => c.basePhotoId !== basePhotoId) ??
           null;
       }
-      const crossPhotoExemplar = approvedSibling?.imageUrl ? await fetchImageBytes(approvedSibling.imageUrl) : null;
+      let crossPhotoExemplar: { bytes: Uint8Array; contentType: string } | null = null;
+      if (approvedSibling?.imageUrl) {
+        const full = await fetchImageBytes(approvedSibling.imageUrl);
+        // Crop to just the accessory + surrounding hair — sending the full photo let Gemini's
+        // background sometimes get swapped onto the target (see cropAroundAccessory for the
+        // confirmed failure case). Falls back to the full image only if this sibling somehow has
+        // no stored layout (shouldn't happen for a "blend" mode result, but stay safe).
+        if (approvedSibling.layoutXPercent != null && approvedSibling.layoutYPercent != null && approvedSibling.layoutWidthPercent != null) {
+          const cropped = await cropAroundAccessory(
+            full.bytes,
+            approvedSibling.layoutXPercent,
+            approvedSibling.layoutYPercent,
+            approvedSibling.layoutWidthPercent
+          );
+          crossPhotoExemplar = { bytes: cropped, contentType: "image/png" };
+        } else {
+          crossPhotoExemplar = full;
+        }
+      }
 
       if (hasManualLayout) {
         // Admin manually placed this via PartSizer — its client-drawn draft already has the cutout

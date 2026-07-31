@@ -63,6 +63,44 @@ export async function stripBackgroundFromCutout(cutoutBytes: Uint8Array): Promis
   return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
 }
 
+/**
+ * Crops a real, already-blended result down to just the accessory plus a bit of surrounding hair —
+ * used to build a cross-photo/cross-part scale exemplar. Sending the FULL photo as an exemplar was
+ * tried first and confirmed broken: despite an explicit "don't reference this image's background/
+ * model" instruction, Gemini repeatedly replaced the target's actual hairstyle/composition with the
+ * exemplar's whenever the exemplar came from a different base photo (verified directly — two real
+ * cases where a base-photo's braid hairstyle was silently swapped for a different photo's bun style
+ * when that photo was used as a cross-photo exemplar). A same-base-photo exemplar never showed this
+ * because the "leaked" background happened to be identical anyway, which is what let the bug hide.
+ * Cropping removes the temptation: there's no full alternate scene left to copy, only enough hair
+ * context around the accessory to still judge relative scale.
+ */
+export async function cropAroundAccessory(
+  imageBytes: Uint8Array,
+  centerXPercent: number,
+  centerYPercent: number,
+  widthPercent: number
+): Promise<Buffer> {
+  const meta = await sharp(imageBytes).metadata();
+  const imgWidth = meta.width!;
+  const imgHeight = meta.height!;
+
+  const MARGIN_MULTIPLIER = 4; // enough surrounding hair to judge scale, not the whole photo
+  const MIN_CROP_PX = 120; // floor so a tiny accessory doesn't produce a near-useless few-pixel crop
+  const cropWidthPx = Math.min(imgWidth, Math.max(MIN_CROP_PX, Math.round(((widthPercent * MARGIN_MULTIPLIER) / 100) * imgWidth)));
+  const cropHeightPx = Math.min(imgHeight, cropWidthPx);
+
+  const centerX = Math.round((centerXPercent / 100) * imgWidth);
+  const centerY = Math.round((centerYPercent / 100) * imgHeight);
+  const left = Math.max(0, Math.min(imgWidth - cropWidthPx, centerX - Math.round(cropWidthPx / 2)));
+  const top = Math.max(0, Math.min(imgHeight - cropHeightPx, centerY - Math.round(cropHeightPx / 2)));
+
+  return sharp(imageBytes)
+    .extract({ left, top, width: cropWidthPx, height: cropHeightPx })
+    .png()
+    .toBuffer();
+}
+
 export type DeterministicDraft = {
   draftBytes: Buffer;
   // Cutout with its background stripped, at full original resolution — sent to Gemini a second
