@@ -157,7 +157,11 @@ export async function generateSingleSoloPreview(
         where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
         orderBy: { generatedAt: "desc" },
       });
+      // This exact part's own approved sibling (same design/color, just a different base photo)
+      // is the most relevant reference; a same-base-photo match from another color in the family
+      // is the next best (same crop/composition); anything else in the family is a last resort.
       const approvedSibling =
+        familyCandidates.find((c) => c.partId === partId && c.basePhotoId !== basePhotoId) ??
         familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
         familyCandidates.find((c) => c.partId !== partId) ??
         familyCandidates.find((c) => c.basePhotoId !== basePhotoId);
