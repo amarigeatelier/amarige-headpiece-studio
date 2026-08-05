@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import PartPlacer, { defaultLayout, type PartLayout } from "./PartPlacer";
+import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance } from "./PartPlacer";
 import { stripNearWhiteBackground } from "@/lib/strip-white-background";
 
 type BasePhoto = {
@@ -24,9 +24,13 @@ type Part = {
   realWidthCm: number | null;
 };
 
+// One selected copy of a part — the same partId can appear more than once (customer chose "2個").
+type Instance = { instanceId: string; partId: string };
+
 const FALLBACK_WIDTH_FRACTION = 0.18;
 const MIN_WIDTH_FRACTION = 0.05;
 const MAX_WIDTH_FRACTION = 0.6;
+const MAX_QUANTITY_PER_PART = 10;
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -38,17 +42,20 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Draws the base photo + each part at its dragged position/rotation onto a canvas, as a rough
- * "layout draft" reference image to send alongside the generation request. Each part's width is
- * calculated from its real-world cm size against the base photo's calibrated real-world width when
- * both are known, instead of a flat guessed fraction — the same real-measurement approach used in
- * the admin sizing tool, so Gemini isn't asked to judge scale itself. Cutout backgrounds are
- * stripped (near-white → transparent) before pasting so the draft doesn't carry a visible white box
- * around each part, which otherwise reads as part of the shape. */
+/** Draws the base photo + each selected instance at its dragged position/rotation onto a canvas, as
+ * a rough "layout draft" reference image to send alongside the generation request. Two instances of
+ * the same part are drawn independently (same cutout image, each at its own position) since they're
+ * separate physical copies the customer placed separately. Each part's width is calculated from its
+ * real-world cm size against the base photo's calibrated real-world width when both are known,
+ * instead of a flat guessed fraction — the same real-measurement approach used in the admin sizing
+ * tool, so Gemini isn't asked to judge scale itself. Cutout backgrounds are stripped (near-white →
+ * transparent) before pasting so the draft doesn't carry a visible white box around each part, which
+ * otherwise reads as part of the shape. */
 async function buildLayoutImageDataUrl(
   baseImageUrl: string,
   basePhotoRealWidthCm: number | null,
-  selectedParts: Part[],
+  instances: Instance[],
+  partsById: Map<string, Part>,
   layout: PartLayout[]
 ): Promise<string> {
   const baseImg = await loadImage(baseImageUrl);
@@ -59,9 +66,10 @@ async function buildLayoutImageDataUrl(
   if (!ctx) throw new Error("canvas unsupported");
   ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
 
-  for (const part of selectedParts) {
-    const l = layout.find((x) => x.partId === part.id);
-    if (!l) continue;
+  for (const instance of instances) {
+    const part = partsById.get(instance.partId);
+    const l = layout.find((x) => x.instanceId === instance.instanceId);
+    if (!part || !l) continue;
     const img = await loadImage(part.compositingImageUrl || part.cutoutImageUrl);
     const imgNoBg = stripNearWhiteBackground(img);
     const widthFraction =
@@ -82,6 +90,10 @@ async function buildLayoutImageDataUrl(
   return canvas.toDataURL("image/png");
 }
 
+function makeInstanceId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
 export default function PartConfigurator({
   basePhotos,
   parts,
@@ -92,7 +104,7 @@ export default function PartConfigurator({
   basePriceJpy: number;
 }) {
   const [basePhotoId, setBasePhotoId] = useState<string | null>(basePhotos[0]?.id ?? null);
-  const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
+  const [instances, setInstances] = useState<Instance[]>([]);
   const [email, setEmail] = useState("");
   const [preview, setPreview] = useState<{ compositeId: string; imageUrl: string } | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -105,6 +117,8 @@ export default function PartConfigurator({
   const [layout, setLayout] = useState<PartLayout[]>([]);
 
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  const partsById = useMemo(() => new Map(parts.map((p) => [p.id, p])), [parts]);
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(parts.map((p) => p.displayCategory).filter((c): c is string => Boolean(c)))).sort(),
@@ -140,41 +154,73 @@ export default function PartConfigurator({
     return Array.from(groups.entries());
   }, [filteredParts]);
 
-  const totalPriceJpy = useMemo(() => {
-    const addOn = parts
-      .filter((p) => selectedPartIds.has(p.id))
-      .reduce((sum, p) => sum + p.addOnPriceJpy, 0);
-    return basePriceJpy + addOn;
-  }, [parts, selectedPartIds, basePriceJpy]);
+  // partId -> how many copies are currently selected, for the quantity steppers and price.
+  const quantities = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const instance of instances) map.set(instance.partId, (map.get(instance.partId) ?? 0) + 1);
+    return map;
+  }, [instances]);
 
-  const selectedParts = useMemo(() => parts.filter((p) => selectedPartIds.has(p.id)), [parts, selectedPartIds]);
+  const totalPriceJpy = useMemo(() => {
+    const addOn = instances.reduce((sum, instance) => sum + (partsById.get(instance.partId)?.addOnPriceJpy ?? 0), 0);
+    return basePriceJpy + addOn;
+  }, [instances, partsById, basePriceJpy]);
+
+  const selectedInstances = useMemo<PlaceableInstance[]>(
+    () =>
+      instances
+        .map((instance) => {
+          const part = partsById.get(instance.partId);
+          if (!part) return null;
+          return { instanceId: instance.instanceId, partId: part.id, cutoutImageUrl: part.cutoutImageUrl, name: part.name };
+        })
+        .filter((x): x is PlaceableInstance => x !== null),
+    [instances, partsById]
+  );
   const currentBasePhoto = useMemo(() => basePhotos.find((b) => b.id === basePhotoId), [basePhotos, basePhotoId]);
 
-  // Keeps `layout` in sync with a new selection set: newly selected parts get a spread-out
-  // default position (centered on the current base photo's calibrated attachment point, not an
-  // arbitrary fixed spot), deselected parts are dropped, already-placed parts keep whatever the
-  // customer dragged them to. Called directly from the selection-changing handlers rather than a
-  // useEffect, since the update is a direct response to a user action, not a sync with an
-  // external system.
-  function syncLayoutToSelection(nextIds: Set<string>) {
-    setLayout((prev) => {
-      const kept = prev.filter((l) => nextIds.has(l.partId));
-      const missingParts = parts.filter((p) => nextIds.has(p.id) && !kept.some((l) => l.partId === p.id));
-      if (missingParts.length === 0 && kept.length === prev.length) return prev;
-      return [
-        ...kept,
-        ...defaultLayout(missingParts, currentBasePhoto?.defaultAttachmentXPercent, currentBasePhoto?.defaultAttachmentYPercent),
-      ];
+  // Derives nextInstances from the PREVIOUS state via updater functions (not the `instances`
+  // closure variable) so two quantity-button clicks in quick succession — which React can batch
+  // into the same tick before either has re-rendered — each apply on top of the other instead of
+  // one silently clobbering the other's change.
+  function setInstancesAndSyncLayout(updateInstances: (prev: Instance[]) => Instance[]) {
+    setInstances((prevInstances) => {
+      const nextInstances = updateInstances(prevInstances);
+      setLayout((prevLayout) => {
+        const nextIds = new Set(nextInstances.map((i) => i.instanceId));
+        const kept = prevLayout.filter((l) => nextIds.has(l.instanceId));
+        const missing = nextInstances
+          .filter((i) => !kept.some((l) => l.instanceId === i.instanceId))
+          .map((i) => {
+            const part = partsById.get(i.partId);
+            return part ? { instanceId: i.instanceId, partId: part.id, cutoutImageUrl: part.cutoutImageUrl, name: part.name } : null;
+          })
+          .filter((x): x is PlaceableInstance => x !== null);
+        if (missing.length === 0 && kept.length === prevLayout.length) return prevLayout;
+        return [
+          ...kept,
+          ...defaultLayout(missing, currentBasePhoto?.defaultAttachmentXPercent, currentBasePhoto?.defaultAttachmentYPercent, kept.length),
+        ];
+      });
+      return nextInstances;
     });
   }
 
-  function togglePart(partId: string) {
-    setSelectedPartIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(partId)) next.delete(partId);
-      else next.add(partId);
-      syncLayoutToSelection(next);
-      return next;
+  function incrementPart(partId: string) {
+    setInstancesAndSyncLayout((prev) => {
+      const currentQty = prev.filter((i) => i.partId === partId).length;
+      if (currentQty >= MAX_QUANTITY_PER_PART) return prev;
+      return [...prev, { instanceId: makeInstanceId(), partId }];
+    });
+    setPreview(null);
+  }
+
+  function decrementPart(partId: string) {
+    setInstancesAndSyncLayout((prev) => {
+      const lastIndex = [...prev].reverse().findIndex((i) => i.partId === partId);
+      if (lastIndex === -1) return prev;
+      const removeAt = prev.length - 1 - lastIndex;
+      return prev.filter((_, idx) => idx !== removeAt);
     });
     setPreview(null);
   }
@@ -185,22 +231,26 @@ export default function PartConfigurator({
   }
 
   async function handleGeneratePreview() {
-    if (!basePhotoId || selectedPartIds.size === 0 || !isEmailValid) return;
+    if (!basePhotoId || instances.length === 0 || !isEmailValid) return;
     const basePhoto = basePhotos.find((b) => b.id === basePhotoId);
     if (!basePhoto) return;
     setGenerating(true);
     setError(null);
     setLimitReached(false);
     try {
-      const layoutImageBase64 = await buildLayoutImageDataUrl(basePhoto.imageUrl, basePhoto.realWidthCm, selectedParts, layout).catch(
-        () => null
-      );
+      const layoutImageBase64 = await buildLayoutImageDataUrl(
+        basePhoto.imageUrl,
+        basePhoto.realWidthCm,
+        instances,
+        partsById,
+        layout
+      ).catch(() => null);
       const res = await fetch("/api/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           basePhotoId,
-          partIds: Array.from(selectedPartIds),
+          partIds: instances.map((i) => i.partId),
           email,
           layout,
           layoutImageBase64,
@@ -245,7 +295,7 @@ export default function PartConfigurator({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           basePhotoId,
-          partIds: Array.from(selectedPartIds),
+          partIds: instances.map((i) => i.partId),
           compositeId: preview.compositeId,
         }),
       });
@@ -277,16 +327,16 @@ export default function PartConfigurator({
                 </div>
               );
             }
-            if (selectedParts.length === 0) {
+            if (selectedInstances.length === 0) {
               return (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={base.imageUrl} alt={base.label} className="aspect-[3/4] w-full rounded-lg object-cover opacity-60" />
               );
             }
-            return <PartPlacer baseImageUrl={base.imageUrl} parts={selectedParts} layout={layout} onChange={setLayout} />;
+            return <PartPlacer baseImageUrl={base.imageUrl} instances={selectedInstances} layout={layout} onChange={setLayout} />;
           })()}
 
-        {!preview && selectedParts.length > 0 && (
+        {!preview && selectedInstances.length > 0 && (
           <p className="mt-2 text-xs text-neutral-500">
             パーツをドラッグして位置を調整できます（丸いつまみをドラッグすると向きも変えられます）。触らなければそのままの配置で生成されます。
           </p>
@@ -336,7 +386,7 @@ export default function PartConfigurator({
 
         <button
           onClick={handleGeneratePreview}
-          disabled={!basePhotoId || selectedPartIds.size === 0 || !isEmailValid || generating}
+          disabled={!basePhotoId || instances.length === 0 || !isEmailValid || generating}
           className="mt-4 w-full rounded border border-neutral-900 py-2 text-sm font-medium text-neutral-900 disabled:opacity-40"
         >
           {generating ? "生成中..." : "プレビューを生成する"}
@@ -405,13 +455,12 @@ export default function PartConfigurator({
               <h3 className="mb-2 text-sm font-medium text-neutral-600">{category}</h3>
               <div className="grid grid-cols-3 gap-2">
                 {categoryParts.map((part) => {
-                  const selected = selectedPartIds.has(part.id);
+                  const qty = quantities.get(part.id) ?? 0;
                   return (
-                    <button
+                    <div
                       key={part.id}
-                      onClick={() => togglePart(part.id)}
                       className={`overflow-hidden rounded-lg border text-left ${
-                        selected ? "border-neutral-900 ring-2 ring-neutral-900" : "border-neutral-200"
+                        qty > 0 ? "border-neutral-900 ring-2 ring-neutral-900" : "border-neutral-200"
                       }`}
                     >
                       <div className="aspect-square w-full bg-neutral-100">
@@ -421,8 +470,29 @@ export default function PartConfigurator({
                       <div className="p-1.5 text-xs">
                         <p className="truncate font-medium">{part.name}</p>
                         <p className="text-neutral-500">＋¥{part.addOnPriceJpy.toLocaleString()}</p>
+                        <div className="mt-1 flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => decrementPart(part.id)}
+                            disabled={qty === 0}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-neutral-300 text-sm leading-none disabled:opacity-30"
+                            aria-label={`${part.name}を1個減らす`}
+                          >
+                            −
+                          </button>
+                          <span className="w-4 text-center font-medium">{qty}</span>
+                          <button
+                            type="button"
+                            onClick={() => incrementPart(part.id)}
+                            disabled={qty >= MAX_QUANTITY_PER_PART}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-neutral-300 text-sm leading-none disabled:opacity-30"
+                            aria-label={`${part.name}を1個増やす`}
+                          >
+                            ＋
+                          </button>
+                        </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

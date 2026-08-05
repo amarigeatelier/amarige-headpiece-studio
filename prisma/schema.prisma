@@ -244,6 +244,8 @@ model OrderItemPart {
   part                  Part      @relation(fields: [partId], references: [id])
   partNameSnapshot      String
   addOnPriceJpySnapshot Int
+  // 同じパーツを複数個つけられるようにするための個数。addOnPriceJpySnapshot は1個あたりの価格。
+  quantity              Int       @default(1)
 
   @@unique([orderItemId, partId])
 }

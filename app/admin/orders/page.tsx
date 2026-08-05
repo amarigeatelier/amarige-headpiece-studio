@@ -59,7 +59,8 @@ export default async function AdminOrdersPage() {
                     <ul className="list-disc pl-5">
                       {item.parts.map((p) => (
                         <li key={p.id}>
-                          {p.partNameSnapshot}（＋¥{p.addOnPriceJpySnapshot.toLocaleString()}）
+                          {p.partNameSnapshot}
+                          {p.quantity > 1 ? `×${p.quantity}` : ""}（＋¥{(p.addOnPriceJpySnapshot * p.quantity).toLocaleString()}）
                         </li>
                       ))}
                     </ul>

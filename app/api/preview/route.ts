@@ -9,6 +9,8 @@ import { getClientIp, hashIp, isUnderDailyLimit, recordGenerationAttempt, DAILY_
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATA_URL_PATTERN = /^data:(image\/[a-z+]+);base64,(.+)$/;
 
+// Multiple layout entries can share the same partId now (the customer selected that part more than
+// once) — that's expected, each entry is one physical instance placed independently.
 function parseLayout(raw: unknown, validPartIds: Set<string>): PartLayout[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const layout: PartLayout[] = [];
@@ -55,8 +57,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "選択されたモデル写真は利用できません" }, { status: 404 });
   }
 
-  const parts = await db.part.findMany({ where: { id: { in: partIds }, status: "active" } });
-  if (parts.length !== partIds.length) {
+  // partIds can contain repeats — the same part selected more than once — so validate/dedupe
+  // against unique ids rather than requiring the raw array to have no duplicates.
+  const uniquePartIds = Array.from(new Set(partIds));
+  const parts = await db.part.findMany({ where: { id: { in: uniquePartIds }, status: "active" } });
+  if (parts.length !== uniquePartIds.length) {
     return NextResponse.json({ error: "選択されたパーツの一部が利用できません" }, { status: 404 });
   }
 
@@ -85,22 +90,35 @@ export async function POST(req: NextRequest) {
   try {
     const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
 
-    const [partImages, base, exemplar] = await Promise.all([
-      Promise.all(
+    // Fetch each unique part's bytes once, then build one PartImageInput per occurrence in partIds
+    // (with repeats) so a part selected twice becomes two independent images for Gemini to place.
+    const uniquePartImages = new Map(
+      await Promise.all(
         parts.map(async (part) => {
           const [{ bytes, contentType }, sizeReference] = await Promise.all([
             fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
             part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
           ]);
-          return {
-            partId: part.id,
-            label: part.name,
-            sizeNote: part.sizeNote,
-            cutoutBytes: bytes,
-            cutoutMimeType: contentType,
-            sizeReferenceBytes: sizeReference?.bytes,
-            sizeReferenceMimeType: sizeReference?.contentType,
-          };
+          return [
+            part.id,
+            {
+              label: part.name,
+              sizeNote: part.sizeNote,
+              cutoutBytes: bytes,
+              cutoutMimeType: contentType,
+              sizeReferenceBytes: sizeReference?.bytes,
+              sizeReferenceMimeType: sizeReference?.contentType,
+            },
+          ] as const;
+        })
+      )
+    );
+
+    const [partImages, base, exemplar] = await Promise.all([
+      Promise.resolve(
+        partIds.map((id) => {
+          const img = uniquePartImages.get(id)!;
+          return { partId: id, ...img };
         })
       ),
       fetchImageBytes(basePhoto.imageUrl),

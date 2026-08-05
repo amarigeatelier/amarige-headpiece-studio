@@ -170,7 +170,7 @@ export function buildBlendPrompt(hasShapeReference: boolean, hasCrossPhotoExempl
   return lines.join("\n");
 }
 
-export const MULTI_COMPOSITE_PROMPT_VERSION = "v13";
+export const MULTI_COMPOSITE_PROMPT_VERSION = "v15";
 
 export function buildMultiPartCompositePrompt(
   attachmentZone: string,
@@ -205,6 +205,11 @@ export function buildMultiPartCompositePrompt(
   const layoutImg = hasLayout ? n++ : null;
   const modelImg = n; // the base/model photo is always sent last, after every part's image(s), the exemplar, and the layout draft (if any)
 
+  // A customer can select the same part more than once (e.g. two of the same flower), so the
+  // numbered list can legitimately contain repeated labels — call that out explicitly so Gemini
+  // doesn't mistake two intentionally-identical entries for one part accidentally listed twice.
+  const hasDuplicateLabels = new Set(parts.map((p) => p.label)).size < parts.length;
+
   const lines = [
     `以下の${parts.length}点のヘアアクセサリーパーツ画像（サイズ参考写真を含む場合あり）を、1つのまとまったヘッドアクセサリーとして自然に組み合わせ、`,
     `画像${modelImg}（最後の画像）のモデルの頭の「${attachmentZone}」の位置に装着した状態で合成してください。`,
@@ -213,6 +218,13 @@ export function buildMultiPartCompositePrompt(
       "ただし、すべてのパーツを完全に同じ一点に積み重ねるのは不自然です。指定された装着位置の範囲内で、各パーツの中心が少しずつ異なる位置に来るように自然にずらして配置し、端同士が触れ合う・軽く重なる程度に留めてください。",
     "サイズ参考写真が含まれる場合、それは実物サイズ把握のためだけに使い、合成結果には含めないでください。指定したヘアアクセサリーパーツを1つも省略・重複させず、すべて画像内に含めてください。",
   ];
+
+  if (hasDuplicateLabels) {
+    lines.push(
+      `上のリストには同じ名前のパーツが複数回登場していますが、これは誤りではなく、お客様が同じデザインのアクセサリーを複数個選んだことを意味します。同じ名前の画像同士も、それぞれ独立した別々の実物として扱い、1個に統合したり、どちらか片方だけを描いたりせず、リストされた数だけ別々に配置してください。` +
+        `最終的な合成写真には、合計で必ず${parts.length}個のアクセサリー（同じデザインの重複を含む）が、それぞれ別の場所に、はっきり見分けられる形で写っている必要があります。数を減らすことは失敗とみなします。`
+    );
+  }
 
   if (exemplarImg) {
     lines.push(exemplarInstruction(exemplarImg, modelImg));
@@ -241,6 +253,12 @@ export function buildMultiPartCompositePrompt(
     "コーム・ピン・クリップなどの装着部分（金属や樹脂の針金・土台）は、最終的な合成結果に一切描かないでください。毛先や毛束の隙間からわずかに覗く・突き出て見える状態も不可とし、完全に毛の中に埋もれて見えないものとして扱ってください。見える部分は花やリボンなどの装飾部分のみにしてください。",
     "各パーツ画像に写っている向き（上下・左右の回転や、パーツが伸びていく方向）は、できる限りそのまま保ってください。自然な装着のためにわずかに角度を調整するのは構いませんが、不必要に回転させたり反転させたりしないでください。"
   );
+
+  if (hasDuplicateLabels) {
+    lines.push(
+      `最後にもう一度確認：入力されたパーツ画像は合計${parts.length}枚あります。生成する前に、完成写真に写るアクセサリーの個数が${parts.length}個ちょうどになっているか数えてください。同じデザインが複数あっても、まとめて1個にしないでください。`
+    );
+  }
 
   return lines.join("\n");
 }

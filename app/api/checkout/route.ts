@@ -20,8 +20,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "選択されたモデル写真は利用できません" }, { status: 404 });
   }
 
-  const parts = await db.part.findMany({ where: { id: { in: partIds }, status: "active" } });
-  if (parts.length !== partIds.length) {
+  // partIds can contain repeats — the same part bought more than once — so validate against unique
+  // ids rather than requiring the raw array to have no duplicates.
+  const uniquePartIds = Array.from(new Set(partIds));
+  const parts = await db.part.findMany({ where: { id: { in: uniquePartIds }, status: "active" } });
+  if (parts.length !== uniquePartIds.length) {
     return NextResponse.json({ error: "選択されたパーツの一部が利用できません" }, { status: 404 });
   }
 
@@ -29,16 +32,27 @@ export async function POST(req: NextRequest) {
   if (!composite || composite.status !== "ready" || composite.basePhotoId !== basePhotoId) {
     return NextResponse.json({ error: "プレビューが見つかりません。もう一度生成してください" }, { status: 404 });
   }
+  // Exact multiset comparison (not just "every id present") — otherwise e.g. [a,a] vs [a,b] would
+  // wrongly pass a naive `.every(includes)` check once duplicates are a legitimate possibility.
   const sameParts =
-    composite.partIds.length === partIds.length && composite.partIds.every((id) => partIds.includes(id));
+    composite.partIds.length === partIds.length &&
+    [...composite.partIds].sort().join(",") === [...partIds].sort().join(",");
   if (!sameParts) {
     return NextResponse.json({ error: "選択内容とプレビューが一致しません。もう一度生成してください" }, { status: 409 });
   }
 
   const setting = await db.storeSetting.findUnique({ where: { id: 1 } });
   const basePriceJpy = setting?.basePriceJpy ?? 0;
-  const partsSnapshot = parts.map((p) => ({ partId: p.id, name: p.name, addOnPriceJpy: p.addOnPriceJpy }));
-  const totalPriceJpy = basePriceJpy + partsSnapshot.reduce((sum, p) => sum + p.addOnPriceJpy, 0);
+
+  const quantityByPartId = new Map<string, number>();
+  for (const id of partIds) quantityByPartId.set(id, (quantityByPartId.get(id) ?? 0) + 1);
+  const partsSnapshot = parts.map((p) => ({
+    partId: p.id,
+    name: p.name,
+    addOnPriceJpy: p.addOnPriceJpy,
+    quantity: quantityByPartId.get(p.id) ?? 1,
+  }));
+  const totalPriceJpy = basePriceJpy + partsSnapshot.reduce((sum, p) => sum + p.addOnPriceJpy * p.quantity, 0);
 
   const pendingCheckout = await db.pendingCheckout.create({
     data: {
@@ -54,7 +68,7 @@ export async function POST(req: NextRequest) {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? req.nextUrl.origin;
 
   // Stripe caps product_data.name at 5000 chars, but keep it readable regardless of how many parts were picked.
-  const partNamesJoined = partsSnapshot.map((p) => p.name).join("、");
+  const partNamesJoined = partsSnapshot.map((p) => (p.quantity > 1 ? `${p.name}×${p.quantity}` : p.name)).join("、");
   const productName = `オーダーメイドヘッドアクセサリー（${
     partNamesJoined.length > 200 ? `${partNamesJoined.slice(0, 200)}…` : partNamesJoined
   }）`;

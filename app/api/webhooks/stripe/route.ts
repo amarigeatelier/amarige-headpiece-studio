@@ -52,7 +52,7 @@ async function handleGenerationCreditPurchase(session: Stripe.Checkout.Session) 
   await grantBonusCredits(ipHash, day, Number(creditsGranted));
 }
 
-type PartSnapshot = { partId: string; name: string; addOnPriceJpy: number };
+type PartSnapshot = { partId: string; name: string; addOnPriceJpy: number; quantity: number };
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Idempotent: re-delivered webhooks (Stripe retries, or a manual replay) must not create duplicate orders.
@@ -101,6 +101,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
                 partId: p.partId,
                 partNameSnapshot: p.name,
                 addOnPriceJpySnapshot: p.addOnPriceJpy,
+                quantity: p.quantity,
               })),
             },
           },
