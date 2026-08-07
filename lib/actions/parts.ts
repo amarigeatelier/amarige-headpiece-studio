@@ -147,63 +147,16 @@ export async function generateSingleSoloPreview(
     let draftWidthPercent: number | null = null;
 
     if (hasManualLayout || calibratedWidthPercent != null) {
-      // The deterministic size/position is mathematically correct, but Gemini's blend step still
-      // has real call-to-call variance on top of it (verified directly: an identical, provably-
-      // correct draft produced a visibly different size on a second attempt). Use an approved real
-      // photo of this exact accessory as an extra size anchor — the same "show, don't just tell"
-      // principle that made the shape reference fix the design-fidelity problem, applied to size
-      // consistency instead. Also looks at "family" parts (this part's copiedFromPartId chain, e.g.
-      // a color variant registered via "既存パーツから複製") so a brand-new color that has no
-      // approved result of its own yet can still borrow one from a sibling color — preferring a
-      // sibling's result on this exact base photo (same crop/hairstyle) when available.
-      let approvedSibling: {
-        imageUrl: string | null;
-        layoutXPercent: number | null;
-        layoutYPercent: number | null;
-        layoutWidthPercent: number | null;
-      } | null = null;
-      if (exemplarPreviewIdOverride) {
-        approvedSibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
-      } else {
-        const familyRootId = part.copiedFromPartId ?? part.id;
-        const familyCandidates = await db.partSoloPreview.findMany({
-          where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
-          orderBy: { generatedAt: "desc" },
-        });
-        // This exact part's own approved sibling (same design/color, just a different base photo)
-        // is the most relevant reference; a same-base-photo match from another color in the family
-        // is the next best (same crop/composition); anything else in the family is a last resort.
-        approvedSibling =
-          familyCandidates.find((c) => c.partId === partId && c.basePhotoId !== basePhotoId) ??
-          familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
-          familyCandidates.find((c) => c.partId !== partId) ??
-          familyCandidates.find((c) => c.basePhotoId !== basePhotoId) ??
-          null;
-      }
-      let crossPhotoExemplar: { bytes: Uint8Array; contentType: string } | null = null;
-      if (approvedSibling?.imageUrl) {
-        const full = await fetchImageBytes(approvedSibling.imageUrl);
-        // Crop to just the accessory + surrounding hair — sending the full photo let Gemini's
-        // background sometimes get swapped onto the target (see cropAroundAccessory for the
-        // confirmed failure case). Falls back to the full image only if this sibling somehow has
-        // no stored layout (shouldn't happen for a "blend" mode result, but stay safe).
-        if (approvedSibling.layoutXPercent != null && approvedSibling.layoutYPercent != null && approvedSibling.layoutWidthPercent != null) {
-          const cropped = await cropAroundAccessory(
-            full.bytes,
-            approvedSibling.layoutXPercent,
-            approvedSibling.layoutYPercent,
-            approvedSibling.layoutWidthPercent
-          );
-          crossPhotoExemplar = { bytes: cropped, contentType: "image/png" };
-        } else {
-          crossPhotoExemplar = full;
-        }
-      }
-
       if (hasManualLayout) {
         // Admin manually placed this via PartSizer — its client-drawn draft already has the cutout
         // pasted at the chosen size/position with the background stripped. We only need to add an
         // undownsized shape reference alongside it (see buildBlendPrompt for why).
+        //
+        // Deliberately NOT using a cross-photo exemplar here. It used to be included automatically
+        // whenever an approved sibling existed, which quietly fought every manual size adjustment:
+        // e.g. shrinking to 55% still showed Gemini "here's the correct size" via an approved
+        // sibling that was 2-3x bigger, and it followed the exemplar over the draft. A manual
+        // PartSizer value is an explicit human override and should be authoritative on its own.
         const cutout = await fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl);
         const shapeReferenceBytes = await stripBackgroundFromCutout(cutout.bytes);
         result = await composePreview({
@@ -212,13 +165,61 @@ export async function generateSingleSoloPreview(
           draftMimeType: layout!.contentType,
           shapeReferenceBytes,
           shapeReferenceMimeType: "image/png",
-          crossPhotoExemplarBytes: crossPhotoExemplar?.bytes,
-          crossPhotoExemplarMimeType: crossPhotoExemplar?.contentType,
         });
         draftXPercent = layout!.xPercent!;
         draftYPercent = layout!.yPercent!;
         draftWidthPercent = layout!.widthPercent!;
       } else {
+        // No manual override — use the calibrated real-world size, and lean on an approved sibling
+        // as an extra size anchor (Gemini's blend step still has real call-to-call variance beyond
+        // the mathematically-correct draft). Also looks at "family" parts (this part's
+        // copiedFromPartId chain, e.g. a color variant registered via "既存パーツから複製") so a
+        // brand-new color with no approved result of its own yet can still borrow one from a
+        // sibling color.
+        let approvedSibling: {
+          imageUrl: string | null;
+          layoutXPercent: number | null;
+          layoutYPercent: number | null;
+          layoutWidthPercent: number | null;
+        } | null = null;
+        if (exemplarPreviewIdOverride) {
+          approvedSibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
+        } else {
+          const familyRootId = part.copiedFromPartId ?? part.id;
+          const familyCandidates = await db.partSoloPreview.findMany({
+            where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
+            orderBy: { generatedAt: "desc" },
+          });
+          // This exact part's own approved sibling (same design/color, just a different base photo)
+          // is the most relevant reference; a same-base-photo match from another color in the family
+          // is the next best (same crop/composition); anything else in the family is a last resort.
+          approvedSibling =
+            familyCandidates.find((c) => c.partId === partId && c.basePhotoId !== basePhotoId) ??
+            familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
+            familyCandidates.find((c) => c.partId !== partId) ??
+            familyCandidates.find((c) => c.basePhotoId !== basePhotoId) ??
+            null;
+        }
+        let crossPhotoExemplar: { bytes: Uint8Array; contentType: string } | null = null;
+        if (approvedSibling?.imageUrl) {
+          const full = await fetchImageBytes(approvedSibling.imageUrl);
+          // Crop to just the accessory + surrounding hair — sending the full photo let Gemini's
+          // background sometimes get swapped onto the target (see cropAroundAccessory for the
+          // confirmed failure case). Falls back to the full image only if this sibling somehow has
+          // no stored layout (shouldn't happen for a "blend" mode result, but stay safe).
+          if (approvedSibling.layoutXPercent != null && approvedSibling.layoutYPercent != null && approvedSibling.layoutWidthPercent != null) {
+            const cropped = await cropAroundAccessory(
+              full.bytes,
+              approvedSibling.layoutXPercent,
+              approvedSibling.layoutYPercent,
+              approvedSibling.layoutWidthPercent
+            );
+            crossPhotoExemplar = { bytes: cropped, contentType: "image/png" };
+          } else {
+            crossPhotoExemplar = full;
+          }
+        }
+
         const [cutout, base] = await Promise.all([
           fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
           fetchImageBytes(basePhoto.imageUrl),
