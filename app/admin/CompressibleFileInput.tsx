@@ -10,19 +10,17 @@ import { useState } from "react";
 // the form ever submits, rather than asking saki to manually shrink every photo herself.
 //
 // The cap has to leave room for MULTIPLE files in the same submission — the part form has up to
-// three (cutout, sizeReference, compositingImage). An earlier version targeted ~2.5MB per file,
-// which passed alone but two of them together (~5MB combined) still tripped the same 4.4MB body
-// limit, just after more of the request had already been read server-side (a slower, confusing
-// timeout-looking failure instead of an instant 413) — confirmed directly against production with
-// two real files. 1.1MB/file keeps even three files comfortably under the combined limit.
-const MAX_LONG_EDGE_PX = 1000;
-const SAFE_UPLOAD_BYTES = 1.2 * 1024 * 1024;
+// three (cutout, sizeReference, compositingImage). A fixed single resize target isn't reliable on
+// its own: PNG output size depends on the image's own detail/texture, not just pixel count, so the
+// same long-edge cap that got one photo comfortably under budget left a more texture-heavy one
+// (fabric folds, fine shadow detail) still too big — confirmed directly against production, where
+// two real files that individually looked fine still failed combined. Iterate down through smaller
+// sizes and re-measure each time, rather than trusting one guessed dimension.
+const CANDIDATE_LONG_EDGES_PX = [1000, 800, 650, 500, 400];
+const SAFE_UPLOAD_BYTES = 0.9 * 1024 * 1024;
 
-async function compressImage(file: File): Promise<File> {
-  if (!file.type.startsWith("image/") || file.size <= SAFE_UPLOAD_BYTES) return file;
-
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_LONG_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+async function encodeAtEdge(bitmap: ImageBitmap, longEdgePx: number): Promise<Blob | null> {
+  const scale = Math.min(1, longEdgePx / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
 
@@ -30,13 +28,25 @@ async function compressImage(file: File): Promise<File> {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return file;
+  if (!ctx) return null;
   // canvasは初期状態で透明なので、背景塗りつぶしをしなければ透過PNGの透明部分はそのまま保たれる。
   ctx.drawImage(bitmap, 0, 0, width, height);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (!blob || blob.size >= file.size) return file;
-  return new File([blob], file.name, { type: "image/png" });
+async function compressImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size <= SAFE_UPLOAD_BYTES) return file;
+
+  const bitmap = await createImageBitmap(file);
+  let best: Blob | null = null;
+  for (const edge of CANDIDATE_LONG_EDGES_PX) {
+    const blob = await encodeAtEdge(bitmap, edge);
+    if (!blob) continue;
+    best = blob;
+    if (blob.size <= SAFE_UPLOAD_BYTES) break; // 目標サイズに収まった時点でそれ以上は縮小しない
+  }
+  if (!best || best.size >= file.size) return file;
+  return new File([best], file.name, { type: "image/png" });
 }
 
 export default function CompressibleFileInput({
