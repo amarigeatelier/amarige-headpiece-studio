@@ -233,18 +233,9 @@ const SHADOW_OPACITY = 0.32;
 const SHADOW_BLUR_SIGMA = 5;
 const SHADOW_OFFSET_X_FRACTION = 0.035;
 const SHADOW_OFFSET_Y_FRACTION = 0.05;
-// Clamp on how far tone-matching is allowed to push the cutout's brightness toward the base photo's
-// local ambient brightness, so a wrongly-lit sample region can't wash out or darken the accessory.
-const TONE_MATCH_MIN = 0.85;
-const TONE_MATCH_MAX = 1.15;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-/** Perceived luminance (ITU-R BT.709) of an RGB triple, 0-255. */
-function luminance(r: number, g: number, b: number): number {
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 type ClampedPlacement = { left: number; top: number };
@@ -323,52 +314,17 @@ export async function mechanicalComposite(
   const { width, height } = info;
   const pixelCount = width * height;
 
-  // Local ambient-tone sample from the base photo, centered on the placement point, roughly the
-  // accessory's own footprint — used to nudge the cutout's brightness toward it below.
-  const { left: sampleLeft, top: sampleTop } = clampPlacement(
-    centerXPercent,
-    centerYPercent,
-    Math.min(baseWidth, width),
-    Math.min(baseHeight, height),
-    baseWidth,
-    baseHeight
-  );
-  const sampleStats = await sharp(baseBytes)
-    .extract({
-      left: sampleLeft,
-      top: sampleTop,
-      width: Math.min(baseWidth, width) || 1,
-      height: Math.min(baseHeight, height) || 1,
-    })
-    .stats();
-  const baseLuminance = luminance(
-    sampleStats.channels[0].mean,
-    sampleStats.channels[1].mean,
-    sampleStats.channels[2].mean
-  );
-
-  let cutoutLumaSum = 0;
-  let cutoutOpaqueCount = 0;
-  for (let i = 0; i < pixelCount; i++) {
-    const a = rgba[i * 4 + 3];
-    if (a < 10) continue;
-    cutoutLumaSum += luminance(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]);
-    cutoutOpaqueCount++;
-  }
-  const brightnessScale =
-    cutoutOpaqueCount > 0
-      ? clamp(baseLuminance / (cutoutLumaSum / cutoutOpaqueCount), TONE_MATCH_MIN, TONE_MATCH_MAX)
-      : 1;
-
-  // Apply the brightness nudge (RGB only) and split out the alpha channel for feathering/shadow work.
+  // Split out the alpha channel for feathering/shadow work below. The cutout's RGB is kept exactly
+  // as photographed — no ambient-tone brightness nudge toward the base photo's local pixels — so a
+  // pale/white part always renders at its true captured color instead of drifting toward whatever
+  // happens to be under it (a white mum measurably dulled ~15% and desaturated toward gray when
+  // placed over a darker kimono/tray area; confirmed by sampling real generated composites, and it
+  // tracked exactly with the old tone-match's 0.85 darkening floor). Matches this file's existing
+  // guaranteed-exact-size philosophy: predictable, true-to-catalog output over a "naturalism" nudge.
   const toned = Buffer.from(rgba);
   const alpha = Buffer.alloc(pixelCount);
   for (let i = 0; i < pixelCount; i++) {
-    const base = i * 4;
-    toned[base] = clamp(Math.round(rgba[base] * brightnessScale), 0, 255);
-    toned[base + 1] = clamp(Math.round(rgba[base + 1] * brightnessScale), 0, 255);
-    toned[base + 2] = clamp(Math.round(rgba[base + 2] * brightnessScale), 0, 255);
-    alpha[i] = rgba[base + 3];
+    alpha[i] = rgba[i * 4 + 3];
   }
 
   // .toColourspace("b-w") is required here — without it, sharp silently upconverts a blurred
