@@ -45,31 +45,29 @@ export async function createPart(formData: FormData) {
     throw new Error("必須項目が入力されていません");
   }
 
-  const key = crypto.randomUUID();
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const cutoutImageUrl = await uploadImage(cutoutImagePath(key, file.name), bytes, file.type || "image/png");
-
-  let sizeReferenceImageUrl: string | null = null;
-  if (sizeRefFile && sizeRefFile.size > 0) {
-    const refKey = crypto.randomUUID();
-    const refBytes = new Uint8Array(await sizeRefFile.arrayBuffer());
-    sizeReferenceImageUrl = await uploadImage(
-      sizeReferenceImagePath(refKey, sizeRefFile.name),
-      refBytes,
-      sizeRefFile.type || "image/png"
-    );
-  }
-
-  let compositingImageUrl: string | null = null;
-  if (compositingFile && compositingFile.size > 0) {
-    const compKey = crypto.randomUUID();
-    const compBytes = new Uint8Array(await compositingFile.arrayBuffer());
-    compositingImageUrl = await uploadImage(
-      compositingImagePath(compKey, compositingFile.name),
-      compBytes,
-      compositingFile.type || "image/png"
-    );
-  }
+  // Upload all selected files concurrently rather than one-at-a-time — on Vercel each upload is a
+  // real network round-trip to Supabase Storage, and this step ran before generateSoloPreviewsForPart
+  // even started, stacking up serially enough (2-3 uploads + 3 parallel solo-preview generations
+  // after) to run into the function's execution time limit for a part with both optional photos set.
+  const [cutoutImageUrl, sizeReferenceImageUrl, compositingImageUrl] = await Promise.all([
+    (async () => {
+      const key = crypto.randomUUID();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return uploadImage(cutoutImagePath(key, file.name), bytes, file.type || "image/png");
+    })(),
+    (async () => {
+      if (!sizeRefFile || sizeRefFile.size === 0) return null;
+      const refKey = crypto.randomUUID();
+      const refBytes = new Uint8Array(await sizeRefFile.arrayBuffer());
+      return uploadImage(sizeReferenceImagePath(refKey, sizeRefFile.name), refBytes, sizeRefFile.type || "image/png");
+    })(),
+    (async () => {
+      if (!compositingFile || compositingFile.size === 0) return null;
+      const compKey = crypto.randomUUID();
+      const compBytes = new Uint8Array(await compositingFile.arrayBuffer());
+      return uploadImage(compositingImagePath(compKey, compositingFile.name), compBytes, compositingFile.type || "image/png");
+    })(),
+  ]);
 
   const part = await db.part.create({
     data: {

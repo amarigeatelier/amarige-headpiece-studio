@@ -4,6 +4,10 @@ import { updatePart } from "@/lib/actions/parts";
 import SubmitButton from "../../../SubmitButton";
 import CompressibleFileInput from "../../../CompressibleFileInput";
 
+// Same reasoning as app/admin/parts/new/page.tsx — updatePart can upload photos and regenerate
+// solo previews in the same request.
+export const maxDuration = 60;
+
 export default async function EditPartPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [part, categories, colors] = await Promise.all([

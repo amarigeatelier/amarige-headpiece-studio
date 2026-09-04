@@ -6,6 +6,11 @@ import { computeCombinationKey, sortPartIds, type PartLayout } from "@/lib/compo
 import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT, AUTO_SIZE_SAFETY_MARGIN, VISUAL_SIZE_BOOST } from "@/lib/sizing-constants";
 import { getClientIp, hashIp, isUnderDailyLimit, recordGenerationAttempt, DAILY_GENERATION_LIMIT } from "@/lib/rate-limit";
 
+// A customer selecting many parts composites them one at a time (mechanicalCompositeMultiple),
+// which can add up past the platform's default function duration limit — same issue confirmed on
+// the admin part-registration routes.
+export const maxDuration = 60;
+
 // Version tag for the composite pipeline that actually produced an image — bumped whenever the
 // pipeline's output would differ for the same inputs, so a cached row from the old Gemini-generated
 // pipeline is never served as if it were a (deterministic, differently-composed) mechanical result.

@@ -4,6 +4,11 @@ import SubmitButton from "../../SubmitButton";
 import CopyFromExistingPart from "../CopyFromExistingPart";
 import CompressibleFileInput from "../../CompressibleFileInput";
 
+// createPart uploads up to 3 photos and generates a solo-preview composite per active base photo —
+// enough sequential/parallel network+CPU work on Vercel that the platform's default function
+// duration limit was cutting it off mid-request in production. Give this route more headroom.
+export const maxDuration = 60;
+
 export default async function NewPartPage() {
   const [categories, colors, existingParts] = await Promise.all([
     db.part.findMany({ where: { displayCategory: { not: null } }, select: { displayCategory: true }, distinct: ["displayCategory"] }),

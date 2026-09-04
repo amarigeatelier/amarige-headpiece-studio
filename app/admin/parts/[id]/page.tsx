@@ -6,6 +6,10 @@ import { approveSoloPreview, rejectSoloPreview, regenerateSoloPreview } from "@/
 import DeletePartButton from "../DeletePartButton";
 import SubmitButton from "../../SubmitButton";
 
+// 再生成・未生成分の一括生成はsharp合成+Supabaseアップロードを複数回行うため、デフォルトの
+// 実行時間制限に収まらないことがある(new/edit page.tsxと同じ理由)。
+export const maxDuration = 60;
+
 const STATUS_LABEL: Record<string, string> = {
   pending_review: "未レビュー",
   approved: "承認済み",
