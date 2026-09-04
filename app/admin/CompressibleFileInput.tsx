@@ -11,16 +11,30 @@ import { useState } from "react";
 //
 // The cap has to leave room for MULTIPLE files in the same submission — the part form has up to
 // three (cutout, sizeReference, compositingImage). A fixed single resize target isn't reliable on
-// its own: PNG output size depends on the image's own detail/texture, not just pixel count, so the
-// same long-edge cap that got one photo comfortably under budget left a more texture-heavy one
-// (fabric folds, fine shadow detail) still too big — confirmed directly against production, where
-// two real files that individually looked fine still failed combined. Iterate down through smaller
-// sizes and re-measure each time, rather than trusting one guessed dimension.
-const CANDIDATE_LONG_EDGES_PX = [1000, 800, 650, 500, 400];
+// its own: output size depends on the image's own detail/texture, not just pixel count, so the same
+// cap that got one photo comfortably under budget left a more texture-heavy one still too big —
+// confirmed directly against production, where two real files that individually looked fine still
+// failed combined. Iterate down through smaller candidates and re-measure each time, rather than
+// trusting one guessed setting.
+//
+// PNG (the original approach) is lossless, so the only way to shrink it is fewer pixels — that made
+// real cutout photos come out visibly soft/blurry once resized small enough to fit (saki noticed and
+// flagged this directly). WebP still supports transparency but compresses photographic detail far
+// more efficiently: the same real cutout photo that needed ~1000px/PNG (~1.1MB, visibly softened) to
+// fit the budget encodes at ~0.5MB at its FULL original resolution as WebP quality 0.85 — no
+// downscaling needed at all for a typical photo. The resize/quality ladder below is a fallback only
+// still-large or unusually detailed photos will actually walk through.
+const CANDIDATES: { edge: number; quality: number }[] = [
+  { edge: Infinity, quality: 0.85 },
+  { edge: 1600, quality: 0.8 },
+  { edge: 1200, quality: 0.7 },
+  { edge: 900, quality: 0.6 },
+  { edge: 700, quality: 0.5 },
+];
 const SAFE_UPLOAD_BYTES = 0.9 * 1024 * 1024;
 
-async function encodeAtEdge(bitmap: ImageBitmap, longEdgePx: number): Promise<Blob | null> {
-  const scale = Math.min(1, longEdgePx / Math.max(bitmap.width, bitmap.height));
+async function encodeCandidate(bitmap: ImageBitmap, edge: number, quality: number): Promise<Blob | null> {
+  const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
 
@@ -29,9 +43,14 @@ async function encodeAtEdge(bitmap: ImageBitmap, longEdgePx: number): Promise<Bl
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  // canvasは初期状態で透明なので、背景塗りつぶしをしなければ透過PNGの透明部分はそのまま保たれる。
+  // canvasは初期状態で透明なので、背景塗りつぶしをしなければ透過部分はそのまま保たれる。
   ctx.drawImage(bitmap, 0, 0, width, height);
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+}
+
+function withWebpExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  return (dot === -1 ? fileName : fileName.slice(0, dot)) + ".webp";
 }
 
 async function compressImage(file: File): Promise<File> {
@@ -39,14 +58,14 @@ async function compressImage(file: File): Promise<File> {
 
   const bitmap = await createImageBitmap(file);
   let best: Blob | null = null;
-  for (const edge of CANDIDATE_LONG_EDGES_PX) {
-    const blob = await encodeAtEdge(bitmap, edge);
+  for (const { edge, quality } of CANDIDATES) {
+    const blob = await encodeCandidate(bitmap, edge, quality);
     if (!blob) continue;
     best = blob;
-    if (blob.size <= SAFE_UPLOAD_BYTES) break; // 目標サイズに収まった時点でそれ以上は縮小しない
+    if (blob.size <= SAFE_UPLOAD_BYTES) break; // 目標サイズに収まった時点でそれ以上は縮小・劣化させない
   }
   if (!best || best.size >= file.size) return file;
-  return new File([best], file.name, { type: "image/png" });
+  return new File([best], withWebpExtension(file.name), { type: "image/webp" });
 }
 
 export default function CompressibleFileInput({
