@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   // confirmed directly from Vercel's runtime logs. This tells Next.js to leave sharp as a normal
   // node_modules require at runtime instead, so Vercel's file tracer picks up the native files.
   serverExternalPackages: ["sharp"],
+  // serverExternalPackages alone wasn't enough (verified: identical ERR_DLOPEN_FAILED after
+  // deploying it) — Next's own file tracer still wasn't picking up sharp's Linux native binary
+  // (libvips-cpp.so) into the deployed function bundle. Force-include it explicitly.
+  outputFileTracingIncludes: {
+    "/**": ["./node_modules/@img/sharp-linux-x64/**/*", "./node_modules/@img/sharp-libvips-linux-x64/**/*"],
+  },
   experimental: {
     serverActions: {
       // Default 1MB is too small for real photo uploads (cutouts/model photos via admin forms).
