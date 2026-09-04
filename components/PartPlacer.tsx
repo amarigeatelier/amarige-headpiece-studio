@@ -6,7 +6,17 @@ import { useCallback, useRef, useState } from "react";
 // the same flower), and each copy needs its own independent position/rotation.
 export type PartLayout = { instanceId: string; partId: string; xPercent: number; yPercent: number; rotationDeg: number };
 
-export type PlaceableInstance = { instanceId: string; partId: string; cutoutImageUrl: string; name: string };
+export type PlaceableInstance = {
+  instanceId: string;
+  partId: string;
+  cutoutImageUrl: string;
+  name: string;
+  // 実寸cmに対する相対サイズ(0-1、一番大きいパーツ=1)。PartConfigurator.thumbnailScaleFractionと
+  // 同じ値。これがないと全パーツがh-16固定枠に収まるだけになり、写真ごとの余白の違いで
+  // 胡蝶蘭が小さく・マムが大きく見えるなど、実物の大小関係と無関係な見た目になってしまう
+  // (saki指摘: 「位置を動かすとき、それぞれのパーツのサイズが大小バラバラになる」)。
+  scaleFraction: number;
+};
 
 /**
  * Spreads N instances around the center in a small ring so they don't start stacked on top of each
@@ -37,6 +47,8 @@ export function defaultLayout(instances: PlaceableInstance[], centerX = 50, cent
 
 const CLAMP_MIN = 3;
 const CLAMP_MAX = 97;
+// 全パーツ共通の基準サイズ(px)。実際の描画サイズはこれ×instance.scaleFractionになる。
+const BASE_SIZE_PX = 64;
 
 export default function PartPlacer({
   baseImageUrl,
@@ -122,7 +134,8 @@ export default function PartPlacer({
               alt={instance.name}
               draggable={false}
               onPointerDown={(e) => startDrag(e, instance.instanceId, "move")}
-              className="h-16 w-16 cursor-grab touch-none object-contain drop-shadow-md active:cursor-grabbing"
+              style={{ width: BASE_SIZE_PX * instance.scaleFraction, height: BASE_SIZE_PX * instance.scaleFraction }}
+              className="cursor-grab touch-none object-contain drop-shadow-md active:cursor-grabbing"
             />
             <div
               onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}

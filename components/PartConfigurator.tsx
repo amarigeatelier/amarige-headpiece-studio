@@ -141,10 +141,16 @@ export default function PartConfigurator({
         .map((instance) => {
           const part = partsById.get(instance.partId);
           if (!part) return null;
-          return { instanceId: instance.instanceId, partId: part.id, cutoutImageUrl: part.cutoutImageUrl, name: part.name };
+          return {
+            instanceId: instance.instanceId,
+            partId: part.id,
+            cutoutImageUrl: part.cutoutImageUrl,
+            name: part.name,
+            scaleFraction: thumbnailScaleFraction(part),
+          };
         })
         .filter((x): x is PlaceableInstance => x !== null),
-    [instances, partsById]
+    [instances, partsById, maxRealWidthCm]
   );
   const currentBasePhoto = useMemo(() => basePhotos.find((b) => b.id === basePhotoId), [basePhotos, basePhotoId]);
 
@@ -162,7 +168,15 @@ export default function PartConfigurator({
           .filter((i) => !kept.some((l) => l.instanceId === i.instanceId))
           .map((i) => {
             const part = partsById.get(i.partId);
-            return part ? { instanceId: i.instanceId, partId: part.id, cutoutImageUrl: part.cutoutImageUrl, name: part.name } : null;
+            return part
+              ? {
+                  instanceId: i.instanceId,
+                  partId: part.id,
+                  cutoutImageUrl: part.cutoutImageUrl,
+                  name: part.name,
+                  scaleFraction: thumbnailScaleFraction(part),
+                }
+              : null;
           })
           .filter((x): x is PlaceableInstance => x !== null);
         if (missing.length === 0 && kept.length === prevLayout.length) return prevLayout;
