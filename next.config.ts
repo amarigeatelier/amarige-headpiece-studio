@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Without this, Next.js's bundler traces sharp into the serverless function bundle without its
+  // Linux native binary (libvips), so /api/preview crashes in production with ERR_DLOPEN_FAILED —
+  // confirmed directly from Vercel's runtime logs. This tells Next.js to leave sharp as a normal
+  // node_modules require at runtime instead, so Vercel's file tracer picks up the native files.
+  serverExternalPackages: ["sharp"],
   experimental: {
     serverActions: {
       // Default 1MB is too small for real photo uploads (cutouts/model photos via admin forms).
