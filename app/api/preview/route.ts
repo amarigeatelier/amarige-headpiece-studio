@@ -14,7 +14,9 @@ export const maxDuration = 60;
 // Version tag for the composite pipeline that actually produced an image — bumped whenever the
 // pipeline's output would differ for the same inputs, so a cached row from the old Gemini-generated
 // pipeline is never served as if it were a (deterministic, differently-composed) mechanical result.
-export const MECHANICAL_MULTI_COMPOSITE_VERSION = "mechanical-multi-v1";
+// Bumped to v2 alongside MECHANICAL_COMPOSITE_VERSION — see its comment. A cached composite from
+// v1 was generated with the old tone-matching darkening bug and must not be served as current.
+export const MECHANICAL_MULTI_COMPOSITE_VERSION = "mechanical-multi-v2";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

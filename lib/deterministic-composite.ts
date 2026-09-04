@@ -222,7 +222,10 @@ function keepLargestComponentBounds(data: Buffer, width: number, height: number)
   };
 }
 
-export const MECHANICAL_COMPOSITE_VERSION = "mechanical-v1";
+// Bumped to v2 when the tone-matching brightness nudge was removed (see mechanicalComposite) — a
+// cached row from v1 was generated with the old darkening bug, so it must not be served as if it
+// were current output under the same key.
+export const MECHANICAL_COMPOSITE_VERSION = "mechanical-v2";
 
 // Soft alpha falloff at the cutout's edge so the paste boundary doesn't read as a hard-edged sticker.
 const FEATHER_SIGMA = 1.4;
