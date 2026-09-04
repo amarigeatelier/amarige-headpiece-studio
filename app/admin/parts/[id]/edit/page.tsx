@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { updatePart } from "@/lib/actions/parts";
 import SubmitButton from "../../../SubmitButton";
+import CompressibleFileInput from "../../../CompressibleFileInput";
 
 export default async function EditPartPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -104,7 +105,7 @@ export default async function EditPartPage({ params }: { params: Promise<{ id: s
         </div>
         <div>
           <label className="mb-1 block text-sm text-neutral-600">写真を差し替える（任意）</label>
-          <input type="file" name="cutout" accept="image/*" className="w-full text-sm" />
+          <CompressibleFileInput name="cutout" className="w-full text-sm" />
           <p className="mt-1 text-xs text-neutral-500">
             お客様に表示される写真です。硬貨など余計なものは写さないでください。
             選択しなければ現在の写真のまま更新されます。差し替えると、既存のQAプレビューはリセットされ、再度承認・有効化が必要になります。
@@ -142,7 +143,7 @@ export default async function EditPartPage({ params }: { params: Promise<{ id: s
               <img src={part.compositingImageUrl} alt="生成用写真（ピンなし）" className="aspect-square w-full object-cover" />
             </div>
           )}
-          <input type="file" name="compositingImage" accept="image/*" className="w-full text-sm" />
+          <CompressibleFileInput name="compositingImage" className="w-full text-sm" />
           {part.compositingImageUrl && (
             <label className="mt-2 flex items-center gap-1.5 text-xs text-neutral-600">
               <input type="checkbox" name="removeCompositingImage" value="1" />

@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { createPart } from "@/lib/actions/parts";
 import SubmitButton from "../../SubmitButton";
 import CopyFromExistingPart from "../CopyFromExistingPart";
+import CompressibleFileInput from "../../CompressibleFileInput";
 
 export default async function NewPartPage() {
   const [categories, colors, existingParts] = await Promise.all([
@@ -20,7 +21,7 @@ export default async function NewPartPage() {
         <CopyFromExistingPart parts={existingParts} />
         <div>
           <label className="mb-1 block text-sm text-neutral-600">カットアウト写真（背景シンプル、長辺2000px以上推奨）</label>
-          <input type="file" name="cutout" accept="image/*" required className="w-full text-sm" />
+          <CompressibleFileInput name="cutout" required className="w-full text-sm" />
           <p className="mt-1 text-xs text-neutral-500">
             お客様の商品一覧にそのまま表示される写真です。硬貨など余計なものは写さないでください。
           </p>
@@ -34,7 +35,7 @@ export default async function NewPartPage() {
         </div>
         <div>
           <label className="mb-1 block text-sm text-neutral-600">生成用写真・ピンなし（任意）</label>
-          <input type="file" name="compositingImage" accept="image/*" className="w-full text-sm" />
+          <CompressibleFileInput name="compositingImage" className="w-full text-sm" />
           <p className="mt-1 text-xs text-neutral-500">
             カットアウト写真からコーム・ピンなどの装着部分だけを手動で消した写真です。登録すると、AI生成時はこちらを優先的に使用します（お客様には表示されません、カットアウト写真がそのまま商品一覧に表示されます）。
             未登録の場合はカットアウト写真がそのままAI生成にも使われます。
