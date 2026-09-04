@@ -8,8 +8,15 @@ import { useState } from "react";
 // transparent-PNG cutout photos routinely exceed this (one measured at 5.16MB), so uploads that
 // worked fine locally were silently failing in production. Resize+re-encode client-side before
 // the form ever submits, rather than asking saki to manually shrink every photo herself.
-const MAX_LONG_EDGE_PX = 1600;
-const SAFE_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+//
+// The cap has to leave room for MULTIPLE files in the same submission — the part form has up to
+// three (cutout, sizeReference, compositingImage). An earlier version targeted ~2.5MB per file,
+// which passed alone but two of them together (~5MB combined) still tripped the same 4.4MB body
+// limit, just after more of the request had already been read server-side (a slower, confusing
+// timeout-looking failure instead of an instant 413) — confirmed directly against production with
+// two real files. 1.1MB/file keeps even three files comfortably under the combined limit.
+const MAX_LONG_EDGE_PX = 1000;
+const SAFE_UPLOAD_BYTES = 1.2 * 1024 * 1024;
 
 async function compressImage(file: File): Promise<File> {
   if (!file.type.startsWith("image/") || file.size <= SAFE_UPLOAD_BYTES) return file;
