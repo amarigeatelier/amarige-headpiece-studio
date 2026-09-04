@@ -1,52 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { fetchImageBytes, uploadImage, compositeImagePath } from "@/lib/storage";
-import { composeParts } from "@/lib/gemini";
-import { MULTI_COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
+import { mechanicalCompositeMultiple, type MechanicalPlacement } from "@/lib/deterministic-composite";
 import { computeCombinationKey, sortPartIds, type PartLayout } from "@/lib/composite-key";
+import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT, AUTO_SIZE_SAFETY_MARGIN, VISUAL_SIZE_BOOST } from "@/lib/sizing-constants";
 import { getClientIp, hashIp, isUnderDailyLimit, recordGenerationAttempt, DAILY_GENERATION_LIMIT } from "@/lib/rate-limit";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DATA_URL_PATTERN = /^data:(image\/[a-z+]+);base64,(.+)$/;
+// Version tag for the composite pipeline that actually produced an image — bumped whenever the
+// pipeline's output would differ for the same inputs, so a cached row from the old Gemini-generated
+// pipeline is never served as if it were a (deterministic, differently-composed) mechanical result.
+export const MECHANICAL_MULTI_COMPOSITE_VERSION = "mechanical-multi-v1";
 
-// Multiple layout entries can share the same partId now (the customer selected that part more than
-// once) — that's expected, each entry is one physical instance placed independently.
-function parseLayout(raw: unknown, validPartIds: Set<string>): PartLayout[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Used only when neither the part nor the base photo has a real-world cm measurement registered yet
+// — keeps generation working (imprecise size) rather than blocking it, matching the previous client
+// fallback fraction.
+const FALLBACK_WIDTH_PERCENT = 18;
+
+type IncomingInstance = { instanceId: string; partId: string };
+
+function parseInstances(raw: unknown): IncomingInstance[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const instances: IncomingInstance[] = [];
+  for (const item of raw) {
+    if (!item || typeof item.instanceId !== "string" || typeof item.partId !== "string") return null;
+    instances.push({ instanceId: item.instanceId, partId: item.partId });
+  }
+  return instances;
+}
+
+function parseLayout(raw: unknown): PartLayout[] | null {
+  if (!Array.isArray(raw)) return null;
   const layout: PartLayout[] = [];
   for (const item of raw) {
     if (
       item &&
+      typeof item.instanceId === "string" &&
       typeof item.partId === "string" &&
-      validPartIds.has(item.partId) &&
       Number.isFinite(item.xPercent) &&
       Number.isFinite(item.yPercent) &&
       Number.isFinite(item.rotationDeg)
     ) {
-      layout.push({ partId: item.partId, xPercent: item.xPercent, yPercent: item.yPercent, rotationDeg: item.rotationDeg });
+      layout.push({
+        instanceId: item.instanceId,
+        partId: item.partId,
+        xPercent: item.xPercent,
+        yPercent: item.yPercent,
+        rotationDeg: item.rotationDeg,
+      });
     }
   }
-  return layout.length > 0 ? layout : undefined;
-}
-
-function parseDataUrl(dataUrl: unknown): { bytes: Uint8Array; contentType: string } | null {
-  if (typeof dataUrl !== "string") return null;
-  const match = dataUrl.match(DATA_URL_PATTERN);
-  if (!match) return null;
-  return { bytes: new Uint8Array(Buffer.from(match[2], "base64")), contentType: match[1] };
+  return layout;
 }
 
 export async function POST(req: NextRequest) {
-  const { basePhotoId, partIds, email, layout: rawLayout, layoutImageBase64 } = await req.json();
+  const { basePhotoId, instances: rawInstances, email, layout: rawLayout } = await req.json();
 
-  if (typeof basePhotoId !== "string" || !Array.isArray(partIds) || partIds.length === 0) {
+  if (typeof basePhotoId !== "string" || typeof email !== "string" || !EMAIL_PATTERN.test(email)) {
     return NextResponse.json({ error: "不正なリクエストです" }, { status: 400 });
   }
-  if (!partIds.every((id) => typeof id === "string")) {
+  const instances = parseInstances(rawInstances);
+  const layout = parseLayout(rawLayout);
+  if (!instances || !layout || layout.length !== instances.length) {
     return NextResponse.json({ error: "不正なリクエストです" }, { status: 400 });
-  }
-  if (typeof email !== "string" || !EMAIL_PATTERN.test(email)) {
-    return NextResponse.json({ error: "有効なメールアドレスを入力してください" }, { status: 400 });
   }
 
   const ip = getClientIp(req);
@@ -57,22 +74,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "選択されたモデル写真は利用できません" }, { status: 404 });
   }
 
-  // partIds can contain repeats — the same part selected more than once — so validate/dedupe
-  // against unique ids rather than requiring the raw array to have no duplicates.
+  const partIds = instances.map((i) => i.partId);
   const uniquePartIds = Array.from(new Set(partIds));
   const parts = await db.part.findMany({ where: { id: { in: uniquePartIds }, status: "active" } });
   if (parts.length !== uniquePartIds.length) {
     return NextResponse.json({ error: "選択されたパーツの一部が利用できません" }, { status: 404 });
   }
+  const partsById = new Map(parts.map((p) => [p.id, p]));
 
-  const layout = parseLayout(rawLayout, new Set(partIds));
-  const layoutImage = parseDataUrl(layoutImageBase64);
+  const layoutByInstanceId = new Map(layout.map((l) => [l.instanceId, l]));
+  if (!instances.every((i) => layoutByInstanceId.has(i.instanceId))) {
+    return NextResponse.json({ error: "不正なリクエストです" }, { status: 400 });
+  }
 
   const sortedPartIds = sortPartIds(partIds);
-  const combinationKey = computeCombinationKey(basePhotoId, sortedPartIds, layout);
+  const combinationKey = computeCombinationKey(basePhotoId, partIds, layout);
 
   const cached = await db.generatedComposite.findUnique({ where: { combinationKey } });
-  if (cached && cached.status === "ready" && cached.promptVersion === MULTI_COMPOSITE_PROMPT_VERSION && cached.imageUrl) {
+  if (cached && cached.status === "ready" && cached.promptVersion === MECHANICAL_MULTI_COMPOSITE_VERSION && cached.imageUrl) {
     await db.generatedComposite.update({ where: { id: cached.id }, data: { lastServedAt: new Date() } });
     return NextResponse.json({ compositeId: cached.id, imageUrl: cached.imageUrl, cached: true });
   }
@@ -88,57 +107,42 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const storeSetting = await db.storeSetting.findUnique({ where: { id: 1 } });
-
-    // Fetch each unique part's bytes once, then build one PartImageInput per occurrence in partIds
-    // (with repeats) so a part selected twice becomes two independent images for Gemini to place.
-    const uniquePartImages = new Map(
+    const uniqueCutoutBytes = new Map(
       await Promise.all(
         parts.map(async (part) => {
-          const [{ bytes, contentType }, sizeReference] = await Promise.all([
-            fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
-            part.sizeReferenceImageUrl ? fetchImageBytes(part.sizeReferenceImageUrl) : Promise.resolve(null),
-          ]);
-          return [
-            part.id,
-            {
-              label: part.name,
-              sizeNote: part.sizeNote,
-              cutoutBytes: bytes,
-              cutoutMimeType: contentType,
-              sizeReferenceBytes: sizeReference?.bytes,
-              sizeReferenceMimeType: sizeReference?.contentType,
-            },
-          ] as const;
+          const { bytes } = await fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl);
+          return [part.id, bytes] as const;
         })
       )
     );
 
-    const [partImages, base, exemplar] = await Promise.all([
-      Promise.resolve(
-        partIds.map((id) => {
-          const img = uniquePartImages.get(id)!;
-          return { partId: id, ...img };
-        })
-      ),
-      fetchImageBytes(basePhoto.imageUrl),
-      storeSetting?.scaleExemplarImageUrl ? fetchImageBytes(storeSetting.scaleExemplarImageUrl) : Promise.resolve(null),
-    ]);
-
+    const base = await fetchImageBytes(basePhoto.imageUrl);
     await recordGenerationAttempt(ip);
 
-    const result = await composeParts({
-      parts: partImages,
-      baseBytes: base.bytes,
-      baseMimeType: base.contentType,
-      attachmentZone: basePhoto.attachmentZone,
-      exemplarBytes: exemplar?.bytes,
-      exemplarMimeType: exemplar?.contentType,
-      layoutBytes: layoutImage?.bytes,
-      layoutMimeType: layoutImage?.contentType,
+    const placements: MechanicalPlacement[] = instances.map((instance) => {
+      const part = partsById.get(instance.partId)!;
+      const l = layoutByInstanceId.get(instance.instanceId)!;
+      const widthPercent =
+        part.realWidthCm != null && basePhoto.realWidthCm != null
+          ? Math.min(
+              MAX_WIDTH_PERCENT,
+              Math.max(
+                MIN_WIDTH_PERCENT,
+                (part.realWidthCm / basePhoto.realWidthCm) * 100 * AUTO_SIZE_SAFETY_MARGIN * VISUAL_SIZE_BOOST
+              )
+            )
+          : FALLBACK_WIDTH_PERCENT;
+      return {
+        cutoutBytes: uniqueCutoutBytes.get(instance.partId)!,
+        targetWidthPercent: widthPercent,
+        centerXPercent: l.xPercent,
+        centerYPercent: l.yPercent,
+        rotationDeg: l.rotationDeg,
+      };
     });
 
-    const imageUrl = await uploadImage(compositeImagePath(combinationKey), result.imageBytes, result.mimeType);
+    const imageBytes = await mechanicalCompositeMultiple(base.bytes, placements);
+    const imageUrl = await uploadImage(compositeImagePath(combinationKey), imageBytes, "image/png");
 
     const composite = await db.generatedComposite.upsert({
       where: { combinationKey },
@@ -148,12 +152,12 @@ export async function POST(req: NextRequest) {
         partIds: sortedPartIds,
         imageUrl,
         status: "ready",
-        promptVersion: result.promptVersion,
+        promptVersion: MECHANICAL_MULTI_COMPOSITE_VERSION,
       },
       update: {
         imageUrl,
         status: "ready",
-        promptVersion: result.promptVersion,
+        promptVersion: MECHANICAL_MULTI_COMPOSITE_VERSION,
         errorMessage: null,
         lastServedAt: new Date(),
       },
@@ -164,7 +168,14 @@ export async function POST(req: NextRequest) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     await db.generatedComposite.upsert({
       where: { combinationKey },
-      create: { basePhotoId, combinationKey, partIds: sortedPartIds, status: "failed", promptVersion: MULTI_COMPOSITE_PROMPT_VERSION, errorMessage },
+      create: {
+        basePhotoId,
+        combinationKey,
+        partIds: sortedPartIds,
+        status: "failed",
+        promptVersion: MECHANICAL_MULTI_COMPOSITE_VERSION,
+        errorMessage,
+      },
       update: { status: "failed", errorMessage },
     });
     return NextResponse.json({ error: "プレビューの生成に失敗しました。もう一度お試しください。" }, { status: 502 });

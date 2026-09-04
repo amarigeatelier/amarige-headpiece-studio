@@ -40,11 +40,13 @@ const CLAMP_MAX = 97;
 
 export default function PartPlacer({
   baseImageUrl,
+  aspectRatio = 3 / 4,
   instances,
   layout,
   onChange,
 }: {
   baseImageUrl: string;
+  aspectRatio?: number;
   instances: PlaceableInstance[];
   layout: PartLayout[];
   onChange: (next: PartLayout[]) => void;
@@ -95,7 +97,8 @@ export default function PartPlacer({
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      className="relative aspect-[3/4] w-full touch-none select-none overflow-hidden rounded-lg bg-neutral-100"
+      className="relative w-full touch-none select-none overflow-hidden rounded-lg bg-neutral-100"
+      style={{ aspectRatio }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={baseImageUrl} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />

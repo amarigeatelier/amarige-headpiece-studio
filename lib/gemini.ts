@@ -4,8 +4,6 @@ import {
   buildCompositePrompt,
   MULTI_COMPOSITE_PROMPT_VERSION,
   buildMultiPartCompositePrompt,
-  BLEND_PROMPT_VERSION,
-  buildBlendPrompt,
 } from "./prompt-templates";
 
 const MODEL = "gemini-2.5-flash-image";
@@ -27,7 +25,10 @@ function getClient(): GoogleGenAI {
 
 // Legacy fallback for parts/base photos without a real-world cm measurement registered yet, where
 // lib/deterministic-composite.ts can't compute a target size — Gemini guesses scale from text/coin/
-// exemplar hints instead. Prefer CompositeBlendInput whenever calibration data is available.
+// exemplar hints instead. Parts with calibration data skip Gemini entirely now (see
+// lib/deterministic-composite.ts's mechanicalComposite) since asking Gemini to also render the
+// accessory — even from an already-correctly-sized draft — proved to have real call-to-call size
+// variance no amount of prompting fixed.
 export type CompositeFromScratchInput = {
   mode: "compose";
   cutoutBytes: Uint8Array;
@@ -42,28 +43,7 @@ export type CompositeFromScratchInput = {
   exemplarMimeType?: string;
 };
 
-// The validated, preferred path: size/position are already decided (computed from real-world cm
-// measurements by lib/deterministic-composite.ts, not judged by Gemini) and baked into draftBytes.
-// Gemini's only job is photorealistic blending — see buildBlendPrompt for why this is far more
-// reliable than asking it to also decide scale, even with strongly-worded text instructions.
-export type CompositeBlendInput = {
-  mode: "blend";
-  draftBytes: Uint8Array;
-  draftMimeType: string;
-  // Undownsized copy of the cutout — keeps fine detail legible for parts that shrink to a small,
-  // hard-to-read size in the draft at their correct real-world scale.
-  shapeReferenceBytes?: Uint8Array;
-  shapeReferenceMimeType?: string;
-  // An already-approved result for the SAME part on a DIFFERENT base photo — the deterministic
-  // draft's size is mathematically correct, but Gemini's blend step still has some size variance
-  // from call to call (observed directly: two blend calls from an identical, provably-correct
-  // draft produced visibly different sizes). Showing a confirmed-good real photo of this exact
-  // accessory at true scale gives Gemini a second, concrete anchor beyond the abstract cm math.
-  crossPhotoExemplarBytes?: Uint8Array;
-  crossPhotoExemplarMimeType?: string;
-};
-
-export type CompositeInput = CompositeFromScratchInput | CompositeBlendInput;
+export type CompositeInput = CompositeFromScratchInput;
 
 export type PartImageInput = {
   partId: string;
@@ -157,20 +137,6 @@ async function generateWithRetry(prompt: string, images: ImagePart[], promptVers
 
 /** Composites a single part cutout onto a single base photo — used for admin solo-QA previews. */
 export async function composePreview(input: CompositeInput): Promise<CompositeResult> {
-  if (input.mode === "blend") {
-    const hasShapeReference = Boolean(input.shapeReferenceBytes && input.shapeReferenceMimeType);
-    const hasCrossPhotoExemplar = Boolean(input.crossPhotoExemplarBytes && input.crossPhotoExemplarMimeType);
-    const prompt = buildBlendPrompt(hasShapeReference, hasCrossPhotoExemplar);
-    const images: ImagePart[] = [{ mimeType: input.draftMimeType, base64: toBase64(input.draftBytes) }];
-    if (hasShapeReference) {
-      images.push({ mimeType: input.shapeReferenceMimeType!, base64: toBase64(input.shapeReferenceBytes!) });
-    }
-    if (hasCrossPhotoExemplar) {
-      images.push({ mimeType: input.crossPhotoExemplarMimeType!, base64: toBase64(input.crossPhotoExemplarBytes!) });
-    }
-    return generateWithRetry(prompt, images, BLEND_PROMPT_VERSION);
-  }
-
   const hasSizeReference = Boolean(input.sizeReferenceBytes && input.sizeReferenceMimeType);
   const hasExemplar = Boolean(input.exemplarBytes && input.exemplarMimeType);
   const prompt = buildCompositePrompt(input.attachmentZone, input.sizeNote, hasSizeReference, hasExemplar);

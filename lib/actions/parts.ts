@@ -13,8 +13,8 @@ import {
 } from "@/lib/storage";
 import { composePreview } from "@/lib/gemini";
 import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
-import { buildDeterministicDraft, stripBackgroundFromCutout, cropAroundAccessory } from "@/lib/deterministic-composite";
-import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT } from "@/lib/sizing-constants";
+import { mechanicalComposite, MECHANICAL_COMPOSITE_VERSION } from "@/lib/deterministic-composite";
+import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT, AUTO_SIZE_SAFETY_MARGIN, VISUAL_SIZE_BOOST } from "@/lib/sizing-constants";
 import type { AttachmentStyle } from "@prisma/client";
 
 function slugify(name: string): string {
@@ -103,14 +103,19 @@ export async function generateSoloPreviewsForPart(partId: string) {
     where: { active: true, compatibleAttachmentStyles: { has: part.attachmentStyle } },
   });
 
-  for (const basePhoto of basePhotos) {
-    const existing = await db.partSoloPreview.findUnique({
-      where: { partId_basePhotoId: { partId, basePhotoId: basePhoto.id } },
-    });
-    if (existing && existing.status !== "failed") continue;
+  // Run all base photos concurrently instead of one-at-a-time — each Gemini call takes ~15-25s, so
+  // this roughly halves the wait for registering a new part when there are 2 active base photos
+  // (and scales better as more base photos are added).
+  await Promise.all(
+    basePhotos.map(async (basePhoto) => {
+      const existing = await db.partSoloPreview.findUnique({
+        where: { partId_basePhotoId: { partId, basePhotoId: basePhoto.id } },
+      });
+      if (existing && existing.status !== "failed") return;
 
-    await generateSingleSoloPreview(partId, basePhoto.id);
-  }
+      await generateSingleSoloPreview(partId, basePhoto.id);
+    })
+  );
 
   revalidatePath(`/admin/parts/${partId}`);
 }
@@ -122,7 +127,17 @@ export async function generateSingleSoloPreview(
   // Explicit "use this exact preview as the scale exemplar" override, from the admin clicking
   // "これを見本に他を再生成" — bypasses the automatic approved-only lookup below, since the whole
   // point is to let her point at a preview that looks right before it's been formally approved.
-  exemplarPreviewIdOverride?: string
+  exemplarPreviewIdOverride?: string,
+  // Skip the mechanical/calibrated path entirely and let Gemini judge size + do the background
+  // separation itself, from the admin clicking "Geminiにお任せで再生成". Exists because the
+  // mechanical path's own background stripping is a plain color-threshold rule: it's reliably exact
+  // on size, but for a source photo with a cast shadow whose color is genuinely close to the
+  // accessory's own (confirmed directly on an アネモネ part — no threshold cleanly separated the
+  // two without also eating petal), no amount of retuning fixes it, while Gemini's semantic
+  // understanding of "this is a flower, not a shadow" handles it fine at the cost of reintroducing
+  // the size-drift risk the mechanical path exists to avoid. A manual per-part escape hatch for that
+  // tradeoff, not a replacement for the mechanical path.
+  useLegacyGemini?: boolean
 ) {
   const [part, basePhoto] = await Promise.all([
     db.part.findUniqueOrThrow({ where: { id: partId } }),
@@ -133,119 +148,81 @@ export async function generateSingleSoloPreview(
     const hasManualLayout = layout?.xPercent !== undefined && layout?.yPercent !== undefined && layout?.widthPercent !== undefined;
 
     // When both the part and the base photo have a real-world cm measurement, we can compute the
-    // correct size ourselves instead of asking Gemini to judge scale — verified far more reliable
-    // (a "shrink to 5%" text instruction still rendered oversized in testing; a deterministically
-    // pasted 5%-wide draft, with Gemini only asked to blend it in, rendered correctly).
+    // true-to-life size ourselves instead of asking Gemini to judge scale — verified far more
+    // reliable (a "shrink to 5%" text instruction still rendered oversized in testing; a
+    // deterministically pasted 5%-wide draft, with Gemini only asked to blend it in, rendered
+    // correctly). VISUAL_SIZE_BOOST then scales that true-to-life size up to match what actually
+    // reads well in a product photo — see its definition for the approved reference it's calibrated
+    // against. AUTO_SIZE_SAFETY_MARGIN is a separate, currently-inert hedge; see its own comment.
     const calibratedWidthPercent =
       part.realWidthCm != null && basePhoto.realWidthCm != null
-        ? Math.min(MAX_WIDTH_PERCENT, Math.max(MIN_WIDTH_PERCENT, (part.realWidthCm / basePhoto.realWidthCm) * 100))
+        ? Math.min(
+            MAX_WIDTH_PERCENT,
+            Math.max(
+              MIN_WIDTH_PERCENT,
+              (part.realWidthCm / basePhoto.realWidthCm) * 100 * AUTO_SIZE_SAFETY_MARGIN * VISUAL_SIZE_BOOST
+            )
+          )
         : null;
 
-    let result: Awaited<ReturnType<typeof composePreview>>;
+    let result: { imageBytes: Buffer; mimeType: string; promptVersion: string };
     let draftXPercent: number | null = null;
     let draftYPercent: number | null = null;
     let draftWidthPercent: number | null = null;
 
-    if (hasManualLayout || calibratedWidthPercent != null) {
+    if (!useLegacyGemini && (hasManualLayout || calibratedWidthPercent != null)) {
+      // Pure mechanical compositing (no Gemini call at all) — replaces the old "deterministic draft
+      // + Gemini blend" pipeline. The blend step was the actual source of the recurring size-drift
+      // complaints (confirmed: Gemini's photorealistic re-render drifted in scale call-to-call even
+      // from a provably-correct draft). Size/position are exact pixel math here, so every generation
+      // for a calibrated part comes out the correct size on the first try, every time.
+      const [cutout, base] = await Promise.all([
+        fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
+        fetchImageBytes(basePhoto.imageUrl),
+      ]);
+
+      let xPercent: number;
+      let yPercent: number;
+      let widthPercent: number;
+
       if (hasManualLayout) {
-        // Admin manually placed this via PartSizer — its client-drawn draft already has the cutout
-        // pasted at the chosen size/position with the background stripped. We only need to add an
-        // undownsized shape reference alongside it (see buildBlendPrompt for why).
-        //
-        // Deliberately NOT using a cross-photo exemplar here. It used to be included automatically
-        // whenever an approved sibling existed, which quietly fought every manual size adjustment:
-        // e.g. shrinking to 55% still showed Gemini "here's the correct size" via an approved
-        // sibling that was 2-3x bigger, and it followed the exemplar over the draft. A manual
-        // PartSizer value is an explicit human override and should be authoritative on its own.
-        const cutout = await fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl);
-        const shapeReferenceBytes = await stripBackgroundFromCutout(cutout.bytes);
-        result = await composePreview({
-          mode: "blend",
-          draftBytes: layout!.bytes,
-          draftMimeType: layout!.contentType,
-          shapeReferenceBytes,
-          shapeReferenceMimeType: "image/png",
-        });
-        draftXPercent = layout!.xPercent!;
-        draftYPercent = layout!.yPercent!;
-        draftWidthPercent = layout!.widthPercent!;
+        // Admin manually placed this via PartSizer — authoritative on its own, no sibling lookup.
+        xPercent = layout!.xPercent!;
+        yPercent = layout!.yPercent!;
+        widthPercent = layout!.widthPercent!;
       } else {
-        // No manual override — use the calibrated real-world size, and lean on an approved sibling
-        // as an extra size anchor (Gemini's blend step still has real call-to-call variance beyond
-        // the mathematically-correct draft). Also looks at "family" parts (this part's
-        // copiedFromPartId chain, e.g. a color variant registered via "既存パーツから複製") so a
-        // brand-new color with no approved result of its own yet can still borrow one from a
-        // sibling color.
-        let approvedSibling: {
-          imageUrl: string | null;
-          layoutXPercent: number | null;
-          layoutYPercent: number | null;
-          layoutWidthPercent: number | null;
-        } | null = null;
+        xPercent = basePhoto.defaultAttachmentXPercent ?? 50;
+        yPercent = basePhoto.defaultAttachmentYPercent ?? 25;
+
+        // When a family sibling (this part's copiedFromPartId chain, e.g. a color variant) already
+        // has an approved result on this EXACT base photo, reuse its widthPercent instead of the
+        // independently-computed cm calibration. Saki's ask was explicit: "シャンパンと同じサイズに"
+        // (the same size as champagne) — cm math for two different parts can legitimately diverge
+        // even when the visual result should match (different measured cm, rounding, etc.).
+        let sibling: { layoutWidthPercent: number | null } | null = null;
         if (exemplarPreviewIdOverride) {
-          approvedSibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
+          sibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
         } else {
           const familyRootId = part.copiedFromPartId ?? part.id;
-          const familyCandidates = await db.partSoloPreview.findMany({
-            where: { status: "approved", part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] } },
+          sibling = await db.partSoloPreview.findFirst({
+            where: {
+              status: "approved",
+              basePhotoId,
+              partId: { not: partId },
+              layoutWidthPercent: { not: null },
+              part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] },
+            },
             orderBy: { generatedAt: "desc" },
           });
-          // This exact part's own approved sibling (same design/color, just a different base photo)
-          // is the most relevant reference; a same-base-photo match from another color in the family
-          // is the next best (same crop/composition); anything else in the family is a last resort.
-          approvedSibling =
-            familyCandidates.find((c) => c.partId === partId && c.basePhotoId !== basePhotoId) ??
-            familyCandidates.find((c) => c.basePhotoId === basePhotoId && c.partId !== partId) ??
-            familyCandidates.find((c) => c.partId !== partId) ??
-            familyCandidates.find((c) => c.basePhotoId !== basePhotoId) ??
-            null;
         }
-        let crossPhotoExemplar: { bytes: Uint8Array; contentType: string } | null = null;
-        if (approvedSibling?.imageUrl) {
-          const full = await fetchImageBytes(approvedSibling.imageUrl);
-          // Crop to just the accessory + surrounding hair — sending the full photo let Gemini's
-          // background sometimes get swapped onto the target (see cropAroundAccessory for the
-          // confirmed failure case). Falls back to the full image only if this sibling somehow has
-          // no stored layout (shouldn't happen for a "blend" mode result, but stay safe).
-          if (approvedSibling.layoutXPercent != null && approvedSibling.layoutYPercent != null && approvedSibling.layoutWidthPercent != null) {
-            const cropped = await cropAroundAccessory(
-              full.bytes,
-              approvedSibling.layoutXPercent,
-              approvedSibling.layoutYPercent,
-              approvedSibling.layoutWidthPercent
-            );
-            crossPhotoExemplar = { bytes: cropped, contentType: "image/png" };
-          } else {
-            crossPhotoExemplar = full;
-          }
-        }
-
-        const [cutout, base] = await Promise.all([
-          fetchImageBytes(part.compositingImageUrl || part.cutoutImageUrl),
-          fetchImageBytes(basePhoto.imageUrl),
-        ]);
-        const xPercent = basePhoto.defaultAttachmentXPercent ?? 50;
-        const yPercent = basePhoto.defaultAttachmentYPercent ?? 25;
-        const { draftBytes, shapeReferenceBytes } = await buildDeterministicDraft(
-          base.bytes,
-          cutout.bytes,
-          calibratedWidthPercent!,
-          xPercent,
-          yPercent
-        );
-        result = await composePreview({
-          mode: "blend",
-          draftBytes,
-          draftMimeType: "image/png",
-          shapeReferenceBytes,
-          shapeReferenceMimeType: "image/png",
-          crossPhotoExemplarBytes: crossPhotoExemplar?.bytes,
-          crossPhotoExemplarMimeType: crossPhotoExemplar?.contentType,
-        });
-        draftXPercent = xPercent;
-        draftYPercent = yPercent;
-        draftWidthPercent = calibratedWidthPercent;
+        widthPercent = sibling?.layoutWidthPercent ?? calibratedWidthPercent!;
       }
+
+      const imageBytes = await mechanicalComposite(base.bytes, cutout.bytes, widthPercent, xPercent, yPercent);
+      result = { imageBytes, mimeType: "image/png", promptVersion: MECHANICAL_COMPOSITE_VERSION };
+      draftXPercent = xPercent;
+      draftYPercent = yPercent;
+      draftWidthPercent = widthPercent;
     } else {
       // Legacy fallback for parts or base photos without a real-world cm measurement registered
       // yet — let Gemini guess scale from text/coin/exemplar hints, as before calibration existed.

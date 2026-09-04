@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* photo_correction/ と green_screen/ は OneDrive経由で写真を同期するための作業用フォルダ
+   (コードではない)。Tailwindの自動コンテンツ検出がここまでスキャンしてしまうと、OneDriveの
+   未ダウンロード(クラウドのみ)状態の写真ファイルを読もうとしてTurbopackごとクラッシュする
+   ことがある(実際に発生した)ため、明示的にスキャン対象から除外する。 */
+@source not "../photo_correction";
+@source not "../green_screen";
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

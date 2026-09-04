@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "photo-correct": "node scripts/photo-correct.mjs",
+    "remove-green-background": "node scripts/remove-green-background.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.12.0",

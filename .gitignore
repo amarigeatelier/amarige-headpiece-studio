@@ -36,6 +36,13 @@ yarn-error.log*
 # vercel
 .vercel
 
+# 写真同期用の作業フォルダ(コードではない、個人の作業ファイル。README.mdだけ残す)
+/photo_correction/inbox/
+/photo_correction/output/
+/photo_correction/reference/
+/green_screen/inbox/
+/green_screen/output/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

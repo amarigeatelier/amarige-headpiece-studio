@@ -1,8 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance } from "./PartPlacer";
-import { stripNearWhiteBackground } from "@/lib/strip-white-background";
 
 type BasePhoto = {
   id: string;
@@ -27,68 +26,11 @@ type Part = {
 // One selected copy of a part — the same partId can appear more than once (customer chose "2個").
 type Instance = { instanceId: string; partId: string };
 
-const FALLBACK_WIDTH_FRACTION = 0.18;
-const MIN_WIDTH_FRACTION = 0.05;
-const MAX_WIDTH_FRACTION = 0.6;
 const MAX_QUANTITY_PER_PART = 10;
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`画像の読み込みに失敗しました: ${src}`));
-    img.src = src;
-  });
-}
-
-/** Draws the base photo + each selected instance at its dragged position/rotation onto a canvas, as
- * a rough "layout draft" reference image to send alongside the generation request. Two instances of
- * the same part are drawn independently (same cutout image, each at its own position) since they're
- * separate physical copies the customer placed separately. Each part's width is calculated from its
- * real-world cm size against the base photo's calibrated real-world width when both are known,
- * instead of a flat guessed fraction — the same real-measurement approach used in the admin sizing
- * tool, so Gemini isn't asked to judge scale itself. Cutout backgrounds are stripped (near-white →
- * transparent) before pasting so the draft doesn't carry a visible white box around each part, which
- * otherwise reads as part of the shape. */
-async function buildLayoutImageDataUrl(
-  baseImageUrl: string,
-  basePhotoRealWidthCm: number | null,
-  instances: Instance[],
-  partsById: Map<string, Part>,
-  layout: PartLayout[]
-): Promise<string> {
-  const baseImg = await loadImage(baseImageUrl);
-  const canvas = document.createElement("canvas");
-  canvas.width = baseImg.naturalWidth;
-  canvas.height = baseImg.naturalHeight;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas unsupported");
-  ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-
-  for (const instance of instances) {
-    const part = partsById.get(instance.partId);
-    const l = layout.find((x) => x.instanceId === instance.instanceId);
-    if (!part || !l) continue;
-    const img = await loadImage(part.compositingImageUrl || part.cutoutImageUrl);
-    const imgNoBg = stripNearWhiteBackground(img);
-    const widthFraction =
-      part.realWidthCm && basePhotoRealWidthCm
-        ? Math.min(MAX_WIDTH_FRACTION, Math.max(MIN_WIDTH_FRACTION, part.realWidthCm / basePhotoRealWidthCm))
-        : FALLBACK_WIDTH_FRACTION;
-    const w = canvas.width * widthFraction;
-    const h = w * (img.naturalHeight / img.naturalWidth);
-    const cx = (l.xPercent / 100) * canvas.width;
-    const cy = (l.yPercent / 100) * canvas.height;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate((l.rotationDeg * Math.PI) / 180);
-    ctx.drawImage(imgNoBg, -w / 2, -h / 2, w, h);
-    ctx.restore();
-  }
-
-  return canvas.toDataURL("image/png");
-}
+// パーツ一覧のサムネイルは全カード同じ枠なので、実物の大小関係が伝わらない(saki指摘)。
+// 一番大きいパーツ(基準は胡蝶蘭)を基準の100%とし、他は実寸cmの比率で縮小表示する。
+// 極端に小さいパーツが点のようになって見えなくなるのを防ぐため下限を設ける。
+const THUMBNAIL_MIN_SCALE_FRACTION = 0.3;
 
 function makeInstanceId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -115,10 +57,37 @@ export default function PartConfigurator({
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
   const [layout, setLayout] = useState<PartLayout[]>([]);
+  // ベース写真ごとの実際の縦横比。旧デザイン(縦長の頭の写真)を前提に固定で3:4にしていたが、
+  // トレー写真のような横長の写真だとそのまま3:4の枠に詰め込まれて大きく切り取られてしまう
+  // (実際に発生した不具合)。写真ごとに実寸の比率を読み取って枠に反映することで、どんな縦横比の
+  // 写真でも(パーツの配置座標が枠基準のままでも)正しく収まるようにする。
+  const [aspectRatio, setAspectRatio] = useState(3 / 4);
+
+  useEffect(() => {
+    const base = basePhotos.find((b) => b.id === basePhotoId);
+    if (!base) return;
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setAspectRatio(img.naturalWidth / img.naturalHeight);
+      }
+    };
+    img.src = base.imageUrl;
+  }, [basePhotoId, basePhotos]);
 
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const partsById = useMemo(() => new Map(parts.map((p) => [p.id, p])), [parts]);
+
+  const maxRealWidthCm = useMemo(() => {
+    const widths = parts.map((p) => p.realWidthCm).filter((w): w is number => w != null && w > 0);
+    return widths.length > 0 ? Math.max(...widths) : null;
+  }, [parts]);
+
+  function thumbnailScaleFraction(part: Part): number {
+    if (maxRealWidthCm == null || part.realWidthCm == null) return 1;
+    return Math.max(THUMBNAIL_MIN_SCALE_FRACTION, Math.min(1, part.realWidthCm / maxRealWidthCm));
+  }
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(parts.map((p) => p.displayCategory).filter((c): c is string => Boolean(c)))).sort(),
@@ -238,22 +207,14 @@ export default function PartConfigurator({
     setError(null);
     setLimitReached(false);
     try {
-      const layoutImageBase64 = await buildLayoutImageDataUrl(
-        basePhoto.imageUrl,
-        basePhoto.realWidthCm,
-        instances,
-        partsById,
-        layout
-      ).catch(() => null);
       const res = await fetch("/api/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           basePhotoId,
-          partIds: instances.map((i) => i.partId),
+          instances: instances.map((i) => ({ instanceId: i.instanceId, partId: i.partId })),
           email,
           layout,
-          layoutImageBase64,
         }),
       });
       const body = await res.json();
@@ -314,15 +275,26 @@ export default function PartConfigurator({
     <div className="grid gap-8 sm:grid-cols-2">
       <div>
         {preview ? (
-          <div className="aspect-[3/4] w-full overflow-hidden rounded-lg bg-neutral-100">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview.imageUrl} alt="生成されたプレビュー" className="h-full w-full object-cover" />
-          </div>
+          <>
+            <div className="w-full overflow-hidden rounded-lg bg-neutral-100" style={{ aspectRatio }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={preview.imageUrl} alt="生成されたプレビュー" className="h-full w-full object-cover" />
+            </div>
+            <button
+              onClick={() => setPreview(null)}
+              className="mt-2 w-full rounded border border-neutral-300 px-4 py-2 text-sm text-neutral-700"
+            >
+              位置を調整し直す
+            </button>
+          </>
         ) : (() => {
             const base = basePhotos.find((b) => b.id === basePhotoId);
             if (!base) {
               return (
-                <div className="flex aspect-[3/4] w-full items-center justify-center rounded-lg bg-neutral-100 text-sm text-neutral-400">
+                <div
+                  className="flex w-full items-center justify-center rounded-lg bg-neutral-100 text-sm text-neutral-400"
+                  style={{ aspectRatio }}
+                >
                   ベース写真を選んでください
                 </div>
               );
@@ -330,10 +302,23 @@ export default function PartConfigurator({
             if (selectedInstances.length === 0) {
               return (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={base.imageUrl} alt={base.label} className="aspect-[3/4] w-full rounded-lg object-cover opacity-60" />
+                <img
+                  src={base.imageUrl}
+                  alt={base.label}
+                  className="w-full rounded-lg object-cover opacity-60"
+                  style={{ aspectRatio }}
+                />
               );
             }
-            return <PartPlacer baseImageUrl={base.imageUrl} instances={selectedInstances} layout={layout} onChange={setLayout} />;
+            return (
+              <PartPlacer
+                baseImageUrl={base.imageUrl}
+                aspectRatio={aspectRatio}
+                instances={selectedInstances}
+                layout={layout}
+                onChange={setLayout}
+              />
+            );
           })()}
 
         {!preview && selectedInstances.length > 0 && (
@@ -463,9 +448,14 @@ export default function PartConfigurator({
                         qty > 0 ? "border-neutral-900 ring-2 ring-neutral-900" : "border-neutral-200"
                       }`}
                     >
-                      <div className="aspect-square w-full bg-neutral-100">
+                      <div className="flex aspect-square w-full items-center justify-center bg-neutral-100">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={part.cutoutImageUrl} alt={part.name} className="h-full w-full object-cover" />
+                        <img
+                          src={part.cutoutImageUrl}
+                          alt={part.name}
+                          className="h-full w-full object-contain"
+                          style={{ transform: `scale(${thumbnailScaleFraction(part)})` }}
+                        />
                       </div>
                       <div className="p-1.5 text-xs">
                         <p className="truncate font-medium">{part.name}</p>
