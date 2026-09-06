@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Keyed by instanceId, not partId — the same part can now be selected more than once (e.g. two of
 // the same flower), and each copy needs its own independent position/rotation.
@@ -48,6 +48,10 @@ export function defaultLayout(instances: PlaceableInstance[], centerX = 50, cent
 
 const CLAMP_MIN = 3;
 const CLAMP_MAX = 97;
+// 回転できることに気づきにくいという指摘(saki)への対応: 一番最初にパーツを選択した時だけ
+// 「ドラッグすると向きを変えられます」と一度だけ吹き出しで説明する。localStorageに記録して、
+// 一度見た後は同じブラウザで二度と出さない。
+const ROTATE_HINT_STORAGE_KEY = "amarige_rotate_hint_shown";
 
 export default function PartPlacer({
   baseImageUrl,
@@ -69,6 +73,28 @@ export default function PartPlacer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ instanceId: string; mode: "move" | "rotate" } | null>(null);
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
+  const [showRotateHint, setShowRotateHint] = useState(false);
+
+  useEffect(() => {
+    if (!selectedInstanceId) {
+      setShowRotateHint(false);
+      return;
+    }
+    let alreadySeen = true;
+    try {
+      alreadySeen = localStorage.getItem(ROTATE_HINT_STORAGE_KEY) === "1";
+    } catch {
+      alreadySeen = true; // localStorageが使えない環境ではしつこく出さない
+    }
+    setShowRotateHint(!alreadySeen);
+    if (!alreadySeen) {
+      try {
+        localStorage.setItem(ROTATE_HINT_STORAGE_KEY, "1");
+      } catch {
+        // ignore
+      }
+    }
+  }, [selectedInstanceId]);
 
   const getLayout = useCallback((instanceId: string) => layout.find((l) => l.instanceId === instanceId), [layout]);
 
@@ -100,6 +126,7 @@ export default function PartPlacer({
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
     setSelectedInstanceId(instanceId);
+    if (mode === "rotate") setShowRotateHint(false);
     setDrag({ instanceId, mode });
   }
 
@@ -155,12 +182,26 @@ export default function PartPlacer({
                 className="h-auto w-full cursor-grab touch-none object-contain drop-shadow-md active:cursor-grabbing"
               />
               {instance.instanceId === selectedInstanceId && (
-                <div
-                  onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}
-                  style={{ transform: "translateX(-50%)" }}
-                  className="absolute left-1/2 -top-5 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-white bg-neutral-900 shadow active:cursor-grabbing"
-                  title="ドラッグで向きを調整"
-                />
+                <>
+                  {showRotateHint && (
+                    <div
+                      className="absolute left-1/2 -top-16 w-max max-w-[10rem] -translate-x-1/2 rounded bg-neutral-900 px-2 py-1 text-center text-[11px] leading-tight text-white shadow-lg"
+                      style={{ transform: "translateX(-50%)" }}
+                    >
+                      ドラッグすると向きを変えられます
+                      <div
+                        className="absolute left-1/2 top-full h-0 w-0 border-4 border-transparent border-t-neutral-900"
+                        style={{ transform: "translateX(-50%)" }}
+                      />
+                    </div>
+                  )}
+                  <div
+                    onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}
+                    style={{ transform: "translateX(-50%)" }}
+                    className="absolute left-1/2 -top-5 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-white bg-neutral-900 shadow active:cursor-grabbing"
+                    title="ドラッグで向きを調整"
+                  />
+                </>
               )}
             </div>
           );
