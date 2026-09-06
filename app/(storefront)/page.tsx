@@ -22,7 +22,7 @@ export default async function StorefrontHomePage() {
         好きなお花で、好きなだけ。わたしだけの髪飾りビュッフェ。
       </h1>
       <p className="mb-8 text-sm text-neutral-500">
-        好きなパーツを選んで「プレビューを生成する」を押すと、実際の組み合わせイメージをその場で確認できます。ご購入後、こちらで実物を組み立ててお届けします。
+        好きなパーツを選んで、その場で仕上がりを確認。ご購入後は、選んだパーツがそのままお手元に届きます。
       </p>
 
       <PartConfigurator
