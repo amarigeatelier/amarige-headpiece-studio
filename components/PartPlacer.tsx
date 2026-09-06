@@ -11,12 +11,13 @@ export type PlaceableInstance = {
   partId: string;
   cutoutImageUrl: string;
   name: string;
-  // 実寸cmに対する相対サイズ(0-1、一番大きいパーツ=1)。PartConfigurator.thumbnailScaleFractionと
-  // 同じ値。これがないと全パーツがh-16固定枠に収まるだけになり、写真ごとの余白の違いで
-  // 胡蝶蘭が小さく・マムが大きく見えるなど、実物の大小関係と無関係な見た目になってしまう
-  // (saki指摘: 「位置を動かすとき、それぞれのパーツのサイズが大小バラバラになる」)。
-  scaleFraction: number;
+  // ベース写真の横幅に対する実寸cm比率(%) — /api/preview(lib/sizing-constants.computeCalibratedWidthPercent)
+  // が実際の合成で使うのと全く同じ値。これにより配置画面での見た目のサイズが、生成後の実際の
+  // 仕上がりサイズとそのまま一致する(saki指摘:「パーツを選んだ時点でもう正しいサイズで出て」)。
+  widthPercent: number;
 };
+
+export type ReorderDirection = "front" | "back";
 
 /**
  * Spreads N instances around the center in a small ring so they don't start stacked on top of each
@@ -47,8 +48,6 @@ export function defaultLayout(instances: PlaceableInstance[], centerX = 50, cent
 
 const CLAMP_MIN = 3;
 const CLAMP_MAX = 97;
-// 全パーツ共通の基準サイズ(px)。実際の描画サイズはこれ×instance.scaleFractionになる。
-const BASE_SIZE_PX = 64;
 
 export default function PartPlacer({
   baseImageUrl,
@@ -56,15 +55,20 @@ export default function PartPlacer({
   instances,
   layout,
   onChange,
+  onReorder,
 }: {
   baseImageUrl: string;
   aspectRatio?: number;
   instances: PlaceableInstance[];
   layout: PartLayout[];
   onChange: (next: PartLayout[]) => void;
+  // 重なり順の変更。instances配列の並び順=描画順(後ろの要素が上に乗る)をそのまま
+  // /api/preview送信時の合成順としても使うので、ここでの並び替えが生成結果にも反映される。
+  onReorder: (instanceId: string, direction: ReorderDirection) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ instanceId: string; mode: "move" | "rotate" } | null>(null);
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
 
   const getLayout = useCallback((instanceId: string) => layout.find((l) => l.instanceId === instanceId), [layout]);
 
@@ -95,6 +99,7 @@ export default function PartPlacer({
     e.preventDefault();
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
+    setSelectedInstanceId(instanceId);
     setDrag({ instanceId, mode });
   }
 
@@ -103,49 +108,84 @@ export default function PartPlacer({
     setDrag(null);
   }
 
-  return (
-    <div
-      ref={containerRef}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      className="relative w-full touch-none select-none overflow-hidden rounded-lg bg-neutral-100"
-      style={{ aspectRatio }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={baseImageUrl} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
+  // ベース写真の何もない部分(パーツの下に隠れているbase img自体)をタップしたら選択解除。
+  // base imgはpointer-events-noneなので、その上でのpointerdownはこのcontainer自身がターゲットになる。
+  function handleContainerPointerDown(e: React.PointerEvent) {
+    if (e.target === containerRef.current) setSelectedInstanceId(null);
+  }
 
-      {instances.map((instance) => {
-        const l = getLayout(instance.instanceId);
-        if (!l) return null;
-        return (
-          <div
-            key={instance.instanceId}
-            style={{
-              position: "absolute",
-              left: `${l.xPercent}%`,
-              top: `${l.yPercent}%`,
-              transform: `translate(-50%, -50%) rotate(${l.rotationDeg}deg)`,
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={instance.cutoutImageUrl}
-              alt={instance.name}
-              draggable={false}
-              onPointerDown={(e) => startDrag(e, instance.instanceId, "move")}
-              style={{ width: BASE_SIZE_PX * instance.scaleFraction, height: BASE_SIZE_PX * instance.scaleFraction }}
-              className="cursor-grab touch-none object-contain drop-shadow-md active:cursor-grabbing"
-            />
+  const selectedInstance = instances.find((i) => i.instanceId === selectedInstanceId);
+
+  return (
+    <div>
+      <div
+        ref={containerRef}
+        onPointerDown={handleContainerPointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        className="relative w-full touch-none select-none overflow-hidden rounded-lg bg-neutral-100"
+        style={{ aspectRatio }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={baseImageUrl} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
+
+        {instances.map((instance) => {
+          const l = getLayout(instance.instanceId);
+          if (!l) return null;
+          return (
             <div
-              onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}
-              style={{ transform: "translateX(-50%)" }}
-              className="absolute left-1/2 -top-5 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-white bg-neutral-900 shadow active:cursor-grabbing"
-              title="ドラッグで向きを調整"
-            />
+              key={instance.instanceId}
+              style={{
+                position: "absolute",
+                left: `${l.xPercent}%`,
+                top: `${l.yPercent}%`,
+                width: `${instance.widthPercent}%`,
+                transform: `translate(-50%, -50%) rotate(${l.rotationDeg}deg)`,
+                outline: instance.instanceId === selectedInstanceId ? "2px dashed rgba(23,23,23,0.5)" : undefined,
+                outlineOffset: 2,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={instance.cutoutImageUrl}
+                alt={instance.name}
+                draggable={false}
+                onPointerDown={(e) => startDrag(e, instance.instanceId, "move")}
+                className="h-auto w-full cursor-grab touch-none object-contain drop-shadow-md active:cursor-grabbing"
+              />
+              <div
+                onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}
+                style={{ transform: "translateX(-50%)" }}
+                className="absolute left-1/2 -top-5 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-white bg-neutral-900 shadow active:cursor-grabbing"
+                title="ドラッグで向きを調整"
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedInstance && (
+        <div className="mt-2 flex items-center justify-between rounded border border-neutral-200 bg-white px-3 py-2 text-sm">
+          <span className="text-neutral-600">{selectedInstance.name}を選択中</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => onReorder(selectedInstance.instanceId, "back")}
+              className="rounded border border-neutral-300 px-2 py-1 text-xs"
+            >
+              背面へ
+            </button>
+            <button
+              type="button"
+              onClick={() => onReorder(selectedInstance.instanceId, "front")}
+              className="rounded border border-neutral-300 px-2 py-1 text-xs"
+            >
+              前面へ
+            </button>
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }

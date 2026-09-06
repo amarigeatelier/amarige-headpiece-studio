@@ -14,7 +14,7 @@ import {
 import { composePreview } from "@/lib/gemini";
 import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
 import { mechanicalComposite, MECHANICAL_COMPOSITE_VERSION } from "@/lib/deterministic-composite";
-import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT, AUTO_SIZE_SAFETY_MARGIN, VISUAL_SIZE_BOOST } from "@/lib/sizing-constants";
+import { computeCalibratedWidthPercent } from "@/lib/sizing-constants";
 import type { AttachmentStyle } from "@prisma/client";
 
 function slugify(name: string): string {
@@ -152,16 +152,7 @@ export async function generateSingleSoloPreview(
     // correctly). VISUAL_SIZE_BOOST then scales that true-to-life size up to match what actually
     // reads well in a product photo — see its definition for the approved reference it's calibrated
     // against. AUTO_SIZE_SAFETY_MARGIN is a separate, currently-inert hedge; see its own comment.
-    const calibratedWidthPercent =
-      part.realWidthCm != null && basePhoto.realWidthCm != null
-        ? Math.min(
-            MAX_WIDTH_PERCENT,
-            Math.max(
-              MIN_WIDTH_PERCENT,
-              (part.realWidthCm / basePhoto.realWidthCm) * 100 * AUTO_SIZE_SAFETY_MARGIN * VISUAL_SIZE_BOOST
-            )
-          )
-        : null;
+    const calibratedWidthPercent = computeCalibratedWidthPercent(part.realWidthCm, basePhoto.realWidthCm);
 
     let result: { imageBytes: Buffer; mimeType: string; promptVersion: string };
     let draftXPercent: number | null = null;

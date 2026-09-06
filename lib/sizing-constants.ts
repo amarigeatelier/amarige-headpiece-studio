@@ -35,3 +35,21 @@ export const AUTO_SIZE_SAFETY_MARGIN = 1.0;
 // miscalibration) — with the tray now the primary/only customer-facing context, true-to-life scale
 // is the actual goal (an honest "what you'll get" preview), not "reads well as a product photo".
 export const VISUAL_SIZE_BOOST = 1.0;
+
+// Used only when neither the part nor the base photo has a real-world cm measurement registered
+// yet — keeps generation/preview working (imprecise size) rather than blocking it.
+export const FALLBACK_WIDTH_PERCENT = 18;
+
+// The one true formula for "how wide should this part render, as % of the base photo's width" —
+// shared by the server (app/api/preview/route.ts, lib/actions/parts.ts) and the client-side tray
+// placer (components/PartConfigurator.tsx), so the size a customer sees while positioning a part is
+// exactly the size the actual generated composite will use, not a separately-tuned approximation.
+// Returns null (rather than FALLBACK_WIDTH_PERCENT) when calibration data is missing, so each call
+// site can decide its own fallback instead of this function silently picking one.
+export function computeCalibratedWidthPercent(partRealWidthCm: number | null, baseRealWidthCm: number | null): number | null {
+  if (partRealWidthCm == null || baseRealWidthCm == null) return null;
+  return Math.min(
+    MAX_WIDTH_PERCENT,
+    Math.max(MIN_WIDTH_PERCENT, (partRealWidthCm / baseRealWidthCm) * 100 * AUTO_SIZE_SAFETY_MARGIN * VISUAL_SIZE_BOOST)
+  );
+}

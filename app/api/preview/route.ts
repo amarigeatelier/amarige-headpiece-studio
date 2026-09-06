@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { fetchImageBytes, uploadImage, compositeImagePath } from "@/lib/storage";
 import { mechanicalCompositeMultiple, type MechanicalPlacement } from "@/lib/deterministic-composite";
 import { computeCombinationKey, sortPartIds, type PartLayout } from "@/lib/composite-key";
-import { MIN_WIDTH_PERCENT, MAX_WIDTH_PERCENT, AUTO_SIZE_SAFETY_MARGIN, VISUAL_SIZE_BOOST } from "@/lib/sizing-constants";
+import { computeCalibratedWidthPercent, FALLBACK_WIDTH_PERCENT } from "@/lib/sizing-constants";
 import { getClientIp, hashIp, isUnderDailyLimit, recordGenerationAttempt, DAILY_GENERATION_LIMIT } from "@/lib/rate-limit";
 
 // A customer selecting many parts composites them one at a time (mechanicalCompositeMultiple),
@@ -19,11 +19,6 @@ export const maxDuration = 60;
 export const MECHANICAL_MULTI_COMPOSITE_VERSION = "mechanical-multi-v2";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// Used only when neither the part nor the base photo has a real-world cm measurement registered yet
-// — keeps generation working (imprecise size) rather than blocking it, matching the previous client
-// fallback fraction.
-const FALLBACK_WIDTH_PERCENT = 18;
 
 type IncomingInstance = { instanceId: string; partId: string };
 
@@ -129,16 +124,7 @@ export async function POST(req: NextRequest) {
     const placements: MechanicalPlacement[] = instances.map((instance) => {
       const part = partsById.get(instance.partId)!;
       const l = layoutByInstanceId.get(instance.instanceId)!;
-      const widthPercent =
-        part.realWidthCm != null && basePhoto.realWidthCm != null
-          ? Math.min(
-              MAX_WIDTH_PERCENT,
-              Math.max(
-                MIN_WIDTH_PERCENT,
-                (part.realWidthCm / basePhoto.realWidthCm) * 100 * AUTO_SIZE_SAFETY_MARGIN * VISUAL_SIZE_BOOST
-              )
-            )
-          : FALLBACK_WIDTH_PERCENT;
+      const widthPercent = computeCalibratedWidthPercent(part.realWidthCm, basePhoto.realWidthCm) ?? FALLBACK_WIDTH_PERCENT;
       return {
         cutoutBytes: uniqueCutoutBytes.get(instance.partId)!,
         targetWidthPercent: widthPercent,

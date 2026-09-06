@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance } from "./PartPlacer";
+import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance, type ReorderDirection } from "./PartPlacer";
+import { computeCalibratedWidthPercent, FALLBACK_WIDTH_PERCENT } from "@/lib/sizing-constants";
 
 type BasePhoto = {
   id: string;
@@ -89,6 +90,14 @@ export default function PartConfigurator({
     return Math.max(THUMBNAIL_MIN_SCALE_FRACTION, Math.min(1, part.realWidthCm / maxRealWidthCm));
   }
 
+  const currentBasePhoto = useMemo(() => basePhotos.find((b) => b.id === basePhotoId), [basePhotos, basePhotoId]);
+
+  // /api/preview(サーバー側)が実際の合成に使うのと同じ計算式(lib/sizing-constants)。
+  // これでトレー配置画面での見た目の大きさが、生成後の仕上がりサイズとそのまま一致する。
+  function partWidthPercent(part: Part): number {
+    return computeCalibratedWidthPercent(part.realWidthCm, currentBasePhoto?.realWidthCm ?? null) ?? FALLBACK_WIDTH_PERCENT;
+  }
+
   const categoryOptions = useMemo(
     () => Array.from(new Set(parts.map((p) => p.displayCategory).filter((c): c is string => Boolean(c)))).sort(),
     [parts]
@@ -146,13 +155,12 @@ export default function PartConfigurator({
             partId: part.id,
             cutoutImageUrl: part.cutoutImageUrl,
             name: part.name,
-            scaleFraction: thumbnailScaleFraction(part),
+            widthPercent: partWidthPercent(part),
           };
         })
         .filter((x): x is PlaceableInstance => x !== null),
-    [instances, partsById, maxRealWidthCm]
+    [instances, partsById, currentBasePhoto]
   );
-  const currentBasePhoto = useMemo(() => basePhotos.find((b) => b.id === basePhotoId), [basePhotos, basePhotoId]);
 
   // Derives nextInstances from the PREVIOUS state via updater functions (not the `instances`
   // closure variable) so two quantity-button clicks in quick succession — which React can batch
@@ -174,7 +182,7 @@ export default function PartConfigurator({
                   partId: part.id,
                   cutoutImageUrl: part.cutoutImageUrl,
                   name: part.name,
-                  scaleFraction: thumbnailScaleFraction(part),
+                  widthPercent: partWidthPercent(part),
                 }
               : null;
           })
@@ -187,6 +195,19 @@ export default function PartConfigurator({
       });
       return nextInstances;
     });
+  }
+
+  // 重なり順の変更。instancesの並び順=PartPlacerでの描画順=/api/preview送信時の合成順、なので
+  // ここでinstances配列自体を並び替えるだけで、プレビュー画面と実際の生成結果の両方に反映される。
+  function reorderInstance(instanceId: string, direction: ReorderDirection) {
+    setInstances((prev) => {
+      const index = prev.findIndex((i) => i.instanceId === instanceId);
+      if (index === -1) return prev;
+      const target = prev[index];
+      const rest = prev.filter((_, i) => i !== index);
+      return direction === "front" ? [...rest, target] : [target, ...rest];
+    });
+    setPreview(null);
   }
 
   function incrementPart(partId: string) {
@@ -331,6 +352,7 @@ export default function PartConfigurator({
                 instances={selectedInstances}
                 layout={layout}
                 onChange={setLayout}
+                onReorder={reorderInstance}
               />
             );
           })()}
