@@ -154,12 +154,14 @@ export default function PartPlacer({
                 onPointerDown={(e) => startDrag(e, instance.instanceId, "move")}
                 className="h-auto w-full cursor-grab touch-none object-contain drop-shadow-md active:cursor-grabbing"
               />
-              <div
-                onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}
-                style={{ transform: "translateX(-50%)" }}
-                className="absolute left-1/2 -top-5 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-white bg-neutral-900 shadow active:cursor-grabbing"
-                title="ドラッグで向きを調整"
-              />
+              {instance.instanceId === selectedInstanceId && (
+                <div
+                  onPointerDown={(e) => startDrag(e, instance.instanceId, "rotate")}
+                  style={{ transform: "translateX(-50%)" }}
+                  className="absolute left-1/2 -top-5 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-white bg-neutral-900 shadow active:cursor-grabbing"
+                  title="ドラッグで向きを調整"
+                />
+              )}
             </div>
           );
         })}
