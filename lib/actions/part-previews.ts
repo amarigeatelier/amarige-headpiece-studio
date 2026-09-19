@@ -12,6 +12,10 @@ async function pathForSoloPreview(previewId: string): Promise<string> {
 
 export async function approveSoloPreview(previewId: string) {
   const preview = await db.partSoloPreview.update({ where: { id: previewId }, data: { status: "approved" } });
+  // 承認 = 本番反映。編集中の実寸(realWidthCm)をお客様側に使われる値(liveRealWidthCm)へコピーし、
+  // 古い大きさで生成済みのお客様向けプレビューは次回生成時に作り直させる。
+  const part = await db.part.findUniqueOrThrow({ where: { id: preview.partId }, select: { realWidthCm: true } });
+  await db.part.update({ where: { id: preview.partId }, data: { liveRealWidthCm: part.realWidthCm } });
   await invalidateCachedComposites(preview.partId);
   revalidatePath(await pathForSoloPreview(previewId));
 }

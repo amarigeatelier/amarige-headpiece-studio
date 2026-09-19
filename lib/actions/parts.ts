@@ -15,7 +15,6 @@ import { composePreview } from "@/lib/gemini";
 import { COMPOSITE_PROMPT_VERSION } from "@/lib/prompt-templates";
 import { mechanicalComposite, MECHANICAL_COMPOSITE_VERSION } from "@/lib/deterministic-composite";
 import { computeCalibratedWidthPercent } from "@/lib/sizing-constants";
-import { invalidateCachedComposites } from "@/lib/composite-cache";
 import type { AttachmentStyle } from "@prisma/client";
 
 function slugify(name: string): string {
@@ -373,8 +372,6 @@ export async function updatePart(partId: string, formData: FormData) {
     removeCompositingImage ||
     sizeNote !== existing.sizeNote ||
     attachmentStyle !== existing.attachmentStyle;
-
-  if (realWidthCm !== existing.realWidthCm) await invalidateCachedComposites(partId);
 
   await db.part.update({
     where: { id: partId },

@@ -42,7 +42,7 @@ export default async function StorefrontHomePage() {
           addOnPriceJpy: p.addOnPriceJpy,
           displayCategory: p.displayCategory,
           color: p.color,
-          realWidthCm: p.realWidthCm,
+          realWidthCm: p.liveRealWidthCm ?? p.realWidthCm,
         }))}
         basePriceJpy={setting?.basePriceJpy ?? 0}
       />

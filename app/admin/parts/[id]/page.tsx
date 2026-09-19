@@ -45,6 +45,14 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
             ＋¥{part.addOnPriceJpy.toLocaleString()} /{" "}
             {part.status === "active" ? "有効" : part.status === "inactive" ? "無効" : "下書き"}
           </p>
+          <p className="mt-1 text-sm text-neutral-500">
+            実寸: 本番 {part.liveRealWidthCm ?? "未反映"}cm / 編集中 {part.realWidthCm ?? "未設定"}cm
+            {part.liveRealWidthCm !== part.realWidthCm && (
+              <span className="ml-2 rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-800">
+                未反映（プレビューを承認すると本番に反映されます）
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex gap-2">
           <Link href={`/admin/parts/${part.id}/edit`} className="rounded border border-neutral-300 px-3 py-2 text-sm">
@@ -102,7 +110,7 @@ export default async function PartReviewPage({ params }: { params: Promise<{ id:
               <div className="mt-2 flex gap-2">
                 <form action={approveSoloPreview.bind(null, preview.id)}>
                   <SubmitButton className="rounded bg-green-600 px-2 py-1 text-xs text-white disabled:opacity-40">
-                    承認
+                    承認して本番に反映
                   </SubmitButton>
                 </form>
                 <form action={rejectSoloPreview.bind(null, preview.id)}>

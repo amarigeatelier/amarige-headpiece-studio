@@ -58,6 +58,9 @@ model Part {
   // 実物の横幅（cm）。AIに「測らせる」のではなく、ここに登録した実測値とモデル写真側の
   // realWidthCm から正しい配置サイズ(%)をコード側で計算するために使う（サイズ調整パネルの初期値）。
   realWidthCm     Float?
+  // お客様側に実際に反映されている実寸(cm)。realWidthCmは編集中の値で、管理画面で承認した時に
+  // ここへコピーされる(承認するまで本番の大きさは変わらない)。null(未承認)の間はrealWidthCmを使う。
+  liveRealWidthCm Float?
   addOnPriceJpy   Int
   attachmentStyle AttachmentStyle
   displayCategory String? // 種類（お花/リボン/リーフ等）。絞り込みフィルターに使用

@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     const placements: MechanicalPlacement[] = instances.map((instance) => {
       const part = partsById.get(instance.partId)!;
       const l = layoutByInstanceId.get(instance.instanceId)!;
-      const widthPercent = computeCalibratedWidthPercent(part.realWidthCm, basePhoto.realWidthCm) ?? FALLBACK_WIDTH_PERCENT;
+      const widthPercent = computeCalibratedWidthPercent(part.liveRealWidthCm ?? part.realWidthCm, basePhoto.realWidthCm) ?? FALLBACK_WIDTH_PERCENT;
       return {
         cutoutBytes: uniqueCutoutBytes.get(instance.partId)!,
         targetWidthPercent: widthPercent,
