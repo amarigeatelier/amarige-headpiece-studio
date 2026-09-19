@@ -153,7 +153,7 @@ export default function PartConfigurator({
           return {
             instanceId: instance.instanceId,
             partId: part.id,
-            cutoutImageUrl: part.cutoutImageUrl,
+            cutoutImageUrl: part.compositingImageUrl || part.cutoutImageUrl,
             name: part.name,
             widthPercent: partWidthPercent(part),
           };
@@ -180,7 +180,7 @@ export default function PartConfigurator({
               ? {
                   instanceId: i.instanceId,
                   partId: part.id,
-                  cutoutImageUrl: part.cutoutImageUrl,
+                  cutoutImageUrl: part.compositingImageUrl || part.cutoutImageUrl,
                   name: part.name,
                   widthPercent: partWidthPercent(part),
                 }
