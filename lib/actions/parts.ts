@@ -183,28 +183,15 @@ export async function generateSingleSoloPreview(
         xPercent = basePhoto.defaultAttachmentXPercent ?? 50;
         yPercent = basePhoto.defaultAttachmentYPercent ?? 25;
 
-        // When a family sibling (this part's copiedFromPartId chain, e.g. a color variant) already
-        // has an approved result on this EXACT base photo, reuse its widthPercent instead of the
-        // independently-computed cm calibration. Saki's ask was explicit: "シャンパンと同じサイズに"
-        // (the same size as champagne) — cm math for two different parts can legitimately diverge
-        // even when the visual result should match (different measured cm, rounding, etc.).
-        let sibling: { layoutWidthPercent: number | null } | null = null;
-        if (exemplarPreviewIdOverride) {
-          sibling = await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } });
-        } else {
-          const familyRootId = part.copiedFromPartId ?? part.id;
-          sibling = await db.partSoloPreview.findFirst({
-            where: {
-              status: "approved",
-              basePhotoId,
-              partId: { not: partId },
-              layoutWidthPercent: { not: null },
-              part: { OR: [{ id: familyRootId }, { copiedFromPartId: familyRootId }] },
-            },
-            orderBy: { generatedAt: "desc" },
-          });
-        }
-        widthPercent = sibling?.layoutWidthPercent ?? calibratedWidthPercent!;
+        // The size comes from this part's own registered cm, exactly like the customer-facing preview
+        // (/api/preview) — the QA image must match what customers get. An earlier version silently
+        // reused an approved sibling color-variant's width instead; that ignored an edited cm value
+        // (a 3cm part kept a 5cm sibling's size) and went stale once a base photo was recalibrated.
+        // Only an explicit exemplar override still borrows another preview's width.
+        const exemplar = exemplarPreviewIdOverride
+          ? await db.partSoloPreview.findUnique({ where: { id: exemplarPreviewIdOverride } })
+          : null;
+        widthPercent = exemplar?.layoutWidthPercent ?? calibratedWidthPercent!;
       }
 
       const imageBytes = await mechanicalComposite(base.bytes, cutout.bytes, widthPercent, xPercent, yPercent);
