@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     });
 
     const imageBytes = await mechanicalCompositeMultiple(base.bytes, placements);
-    const imageUrl = await uploadImage(compositeImagePath(combinationKey), imageBytes, "image/png");
+    const imageUrl = await uploadImage(compositeImagePath(combinationKey, Date.now().toString(36)), imageBytes, "image/png");
 
     const composite = await db.generatedComposite.upsert({
       where: { combinationKey },

@@ -69,6 +69,11 @@ export async function updateModelBasePhoto(id: string, formData: FormData) {
     imageUrl = await uploadImage(modelPhotoPath(key, file.name), bytes, file.type || "image/png");
   }
 
+  const before = await db.modelBasePhoto.findUnique({ where: { id }, select: { realWidthCm: true } });
+  if (Number.isFinite(realWidthCm) && realWidthCm > 0 && realWidthCm !== before?.realWidthCm) {
+    await db.generatedComposite.updateMany({ where: { basePhotoId: id, status: "ready" }, data: { promptVersion: "stale" } });
+  }
+
   await db.modelBasePhoto.update({
     where: { id },
     data: {

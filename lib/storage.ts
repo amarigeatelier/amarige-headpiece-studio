@@ -55,8 +55,10 @@ export function soloPreviewImagePath(partId: string, basePhotoId: string) {
   return `part-solo-previews/${partId}/${basePhotoId}.png`;
 }
 
-export function compositeImagePath(combinationKey: string) {
-  return `generated-composites/${combinationKey}.png`;
+// The suffix makes every regeneration land at its own path — orders store the image URL, so
+// overwriting one shared path would silently change the picture of an already-purchased order.
+export function compositeImagePath(combinationKey: string, suffix?: string) {
+  return `generated-composites/${combinationKey}${suffix ? `-${suffix}` : ""}.png`;
 }
 
 // `key` is caller-generated (crypto.randomUUID()) so the upload can happen before the

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { generateSingleSoloPreview } from "@/lib/actions/parts";
+import { invalidateCachedComposites } from "@/lib/composite-cache";
 
 async function pathForSoloPreview(previewId: string): Promise<string> {
   const preview = await db.partSoloPreview.findUniqueOrThrow({ where: { id: previewId } });
@@ -10,7 +11,8 @@ async function pathForSoloPreview(previewId: string): Promise<string> {
 }
 
 export async function approveSoloPreview(previewId: string) {
-  await db.partSoloPreview.update({ where: { id: previewId }, data: { status: "approved" } });
+  const preview = await db.partSoloPreview.update({ where: { id: previewId }, data: { status: "approved" } });
+  await invalidateCachedComposites(preview.partId);
   revalidatePath(await pathForSoloPreview(previewId));
 }
 
