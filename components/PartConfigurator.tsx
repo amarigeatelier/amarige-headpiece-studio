@@ -32,6 +32,9 @@ const MAX_QUANTITY_PER_PART = 10;
 // 一番大きいパーツ(基準は胡蝶蘭)を基準の100%とし、他は実寸cmの比率で縮小表示する。
 // 極端に小さいパーツが点のようになって見えなくなるのを防ぐため下限を設ける。
 const THUMBNAIL_MIN_SCALE_FRACTION = 0.3;
+// サイドにもお花をつける場合、後ろ姿の角度だけでは本数が足りているか確認できない(saki指摘)。
+// ベース写真が複数ある(=サイドなど別角度がある)時だけ、角度選択の下に一度だけ案内を出す。
+const SIDE_CHECK_HINT_STORAGE_KEY = "amarige_side_check_hint_shown";
 
 function makeInstanceId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -63,6 +66,18 @@ export default function PartConfigurator({
   // (実際に発生した不具合)。写真ごとに実寸の比率を読み取って枠に反映することで、どんな縦横比の
   // 写真でも(パーツの配置座標が枠基準のままでも)正しく収まるようにする。
   const [aspectRatio, setAspectRatio] = useState(3 / 4);
+  const [showSideCheckHint, setShowSideCheckHint] = useState(false);
+
+  useEffect(() => {
+    if (basePhotos.length <= 1) return;
+    try {
+      if (localStorage.getItem(SIDE_CHECK_HINT_STORAGE_KEY) === "1") return;
+      localStorage.setItem(SIDE_CHECK_HINT_STORAGE_KEY, "1");
+    } catch {
+      return; // localStorageが使えない環境ではしつこく出さない
+    }
+    setShowSideCheckHint(true);
+  }, [basePhotos.length]);
 
   useEffect(() => {
     const base = basePhotos.find((b) => b.id === basePhotoId);
@@ -377,6 +392,12 @@ export default function PartConfigurator({
               </button>
             ))}
           </div>
+        )}
+
+        {showSideCheckHint && (
+          <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            サイドにもお花をつける場合は、「サイド」など他の角度でも本数が足りているか確認してください。
+          </p>
         )}
 
         {!preview && (
