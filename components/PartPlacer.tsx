@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { measureContentBox, type ContentBox } from "@/lib/measure-content-box";
 
 // Keyed by instanceId, not partId — the same part can now be selected more than once (e.g. two of
 // the same flower), and each copy needs its own independent position/rotation.
@@ -52,65 +53,6 @@ const CLAMP_MAX = 97;
 // 「ドラッグすると向きを変えられます」と一度だけ吹き出しで説明する。localStorageに記録して、
 // 一度見た後は同じブラウザで二度と出さない。
 const ROTATE_HINT_STORAGE_KEY = "amarige_rotate_hint_shown";
-
-// 写真のうち実際にお花が写っている範囲(alphaのある部分)。写真の周りの透明な余白ごと大きさを
-// 決めてしまうと、生成結果(余白を切り落としてから大きさを合わせる)より小さく見えてしまうので、
-// サーバー側(lib/deterministic-composite.ts の keepLargestComponentBounds)と同じく、
-// 余白を除いた範囲でサイズを合わせる。値はすべて元画像に対する割合(0-1)。
-type ContentBox = { left: number; top: number; width: number; height: number; aspect: number };
-
-const SCAN_MAX_EDGE = 400;
-const ALPHA_THRESHOLD = 10;
-const CONTENT_PADDING_PX = 4; // サーバー側のCONTENT_PADDING_PXと同じ
-
-function measureContentBox(url: string): Promise<ContentBox | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onerror = () => resolve(null);
-    img.onload = () => {
-      try {
-        const naturalW = img.naturalWidth;
-        const naturalH = img.naturalHeight;
-        if (!naturalW || !naturalH) return resolve(null);
-        const scale = Math.min(1, SCAN_MAX_EDGE / Math.max(naturalW, naturalH));
-        const w = Math.max(1, Math.round(naturalW * scale));
-        const h = Math.max(1, Math.round(naturalH * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) return resolve(null);
-        ctx.drawImage(img, 0, 0, w, h);
-        const { data } = ctx.getImageData(0, 0, w, h);
-        let minX = w, minY = h, maxX = -1, maxY = -1;
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            if (data[(y * w + x) * 4 + 3] >= ALPHA_THRESHOLD) {
-              if (x < minX) minX = x;
-              if (x > maxX) maxX = x;
-              if (y < minY) minY = y;
-              if (y > maxY) maxY = y;
-            }
-          }
-        }
-        if (maxX < 0) return resolve(null);
-        const padX = CONTENT_PADDING_PX / naturalW;
-        const padY = CONTENT_PADDING_PX / naturalH;
-        const left = Math.max(0, minX / w - padX);
-        const top = Math.max(0, minY / h - padY);
-        const right = Math.min(1, (maxX + 1) / w + padX);
-        const bottom = Math.min(1, (maxY + 1) / h + padY);
-        const box = { left, top, width: right - left, height: bottom - top, aspect: naturalW / naturalH };
-        // 余白がほとんどない(=透過していない)写真は、切り取っても意味がないのでそのまま使う
-        resolve(box.width > 0.98 && box.height > 0.98 ? null : box);
-      } catch {
-        resolve(null); // CORSなどで読み取れない場合は従来どおり写真全体で表示
-      }
-    };
-    img.src = url;
-  });
-}
 
 export default function PartPlacer({
   baseImageUrl,

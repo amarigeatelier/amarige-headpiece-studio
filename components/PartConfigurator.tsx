@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance, type ReorderDirection } from "./PartPlacer";
 import { computeCalibratedWidthPercent, FALLBACK_WIDTH_PERCENT } from "@/lib/sizing-constants";
+import { measureContentBox, containInSquare, type ContentBox } from "@/lib/measure-content-box";
 
 type BasePhoto = {
   id: string;
@@ -67,6 +68,23 @@ export default function PartConfigurator({
   // 写真でも(パーツの配置座標が枠基準のままでも)正しく収まるようにする。
   const [aspectRatio, setAspectRatio] = useState(3 / 4);
   const [showSideCheckHint, setShowSideCheckHint] = useState(false);
+  const [thumbBoxes, setThumbBoxes] = useState<Record<string, ContentBox | null>>({});
+
+  // カタログのサムネイルも、配置画面(PartPlacer)と同じく余白を除いた実際の見た目で
+  // 実寸比を揃える。写真ごとに余白の量が違うため、余白ごとスケールすると実寸と大小関係が
+  // ずれてしまっていた(saki指摘:「表示されているけど実際のサイズとリンクされていない」)。
+  useEffect(() => {
+    const urls = Array.from(new Set(parts.map((p) => p.cutoutImageUrl))).filter((url) => !(url in thumbBoxes));
+    if (urls.length === 0) return;
+    let cancelled = false;
+    Promise.all(urls.map(async (url) => [url, await measureContentBox(url)] as const)).then((results) => {
+      if (cancelled) return;
+      setThumbBoxes((prev) => ({ ...prev, ...Object.fromEntries(results) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [parts, thumbBoxes]);
 
   useEffect(() => {
     if (basePhotos.length <= 1) return;
@@ -505,14 +523,40 @@ export default function PartConfigurator({
                         qty > 0 ? "border-neutral-900 ring-2 ring-neutral-900" : "border-neutral-200"
                       }`}
                     >
-                      <div className="flex aspect-square w-full items-center justify-center bg-neutral-100">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={part.cutoutImageUrl}
-                          alt={part.name}
-                          className="h-full w-full object-contain"
-                          style={{ transform: `scale(${thumbnailScaleFraction(part)})` }}
-                        />
+                      <div className="flex aspect-square w-full items-center justify-center overflow-hidden bg-neutral-100">
+                        {thumbBoxes[part.cutoutImageUrl] ? (
+                          <div
+                            className="relative"
+                            style={{
+                              ...containInSquare(
+                                (thumbBoxes[part.cutoutImageUrl]!.width * thumbBoxes[part.cutoutImageUrl]!.aspect) /
+                                  thumbBoxes[part.cutoutImageUrl]!.height
+                              ),
+                              transform: `scale(${thumbnailScaleFraction(part)})`,
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={part.cutoutImageUrl}
+                              alt={part.name}
+                              className="absolute max-w-none"
+                              style={{
+                                width: `${100 / thumbBoxes[part.cutoutImageUrl]!.width}%`,
+                                height: `${100 / thumbBoxes[part.cutoutImageUrl]!.height}%`,
+                                left: `${(-thumbBoxes[part.cutoutImageUrl]!.left / thumbBoxes[part.cutoutImageUrl]!.width) * 100}%`,
+                                top: `${(-thumbBoxes[part.cutoutImageUrl]!.top / thumbBoxes[part.cutoutImageUrl]!.height) * 100}%`,
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={part.cutoutImageUrl}
+                            alt={part.name}
+                            className="h-full w-full object-contain"
+                            style={{ transform: `scale(${thumbnailScaleFraction(part)})` }}
+                          />
+                        )}
                       </div>
                       <div className="p-1.5 text-xs">
                         <p className="truncate font-medium">{part.name}</p>
