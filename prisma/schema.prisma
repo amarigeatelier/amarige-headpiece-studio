@@ -158,6 +158,10 @@ model StoreSetting {
   id                    Int      @id @default(1)
   basePriceJpy          Int
   scaleExemplarImageUrl String? // 「アクセサリーと髪の正しい縮尺感」をAIに示すお手本完成例。合成時に参考画像として毎回渡す。
+  // ローンチ時の先着モニター価格。両方nullまたはmonitorDiscountPercentが0以下、あるいは支払い済み
+  // 注文数がmonitorMaxOrders以上になった時点で自動的に終了する(lib/monitor-price.ts)。
+  monitorDiscountPercent Int?
+  monitorMaxOrders       Int?
   updatedAt             DateTime @updatedAt
 }
 

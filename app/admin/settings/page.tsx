@@ -1,9 +1,13 @@
-import { getStoreSetting, updateBasePrice, updateScaleExemplar, removeScaleExemplar } from "@/lib/actions/settings";
+import { db } from "@/lib/db";
+import { getStoreSetting, updateBasePrice, updateMonitorPrice, updateScaleExemplar, removeScaleExemplar } from "@/lib/actions/settings";
+import { getMonitorPriceState } from "@/lib/monitor-price";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminSettingsPage() {
   const setting = await getStoreSetting();
+  const monitorPrice = await getMonitorPriceState();
+  const purchasedCount = await db.order.count({ where: { status: { in: ["paid", "fulfilled"] } } });
 
   return (
     <div className="mx-auto max-w-md space-y-6 px-6 py-10">
@@ -23,6 +27,51 @@ export default async function AdminSettingsPage() {
             <p className="mt-1 text-xs text-neutral-500">
               お客様の合計金額 ＝ このベース価格 ＋ 選んだパーツの追加料金の合計 になります。
             </p>
+          </div>
+          <button type="submit" className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white">
+            保存する
+          </button>
+        </form>
+      </div>
+
+      <div>
+        <h2 className="mb-2 text-lg font-semibold">先着モニター価格</h2>
+        <p className="mb-4 text-sm text-neutral-500">
+          設定すると、合計金額から指定した割引率が自動で引かれます。支払い済みの注文数が上限人数に達すると、自動的に通常価格へ戻ります。
+          どちらかを空欄にすると無効になります。
+        </p>
+        <form action={updateMonitorPrice} className="space-y-4 rounded-lg border border-neutral-200 bg-white p-6">
+          <p
+            className={`rounded px-3 py-2 text-sm ${
+              monitorPrice.active ? "bg-green-100 text-green-800" : "bg-neutral-100 text-neutral-600"
+            }`}
+          >
+            {monitorPrice.active
+              ? `有効：${monitorPrice.discountPercent}%オフ（支払い済み${purchasedCount}件 / 上限${monitorPrice.maxOrders}件、残り${monitorPrice.remaining}件）`
+              : `無効（支払い済み${purchasedCount}件）`}
+          </p>
+          <div>
+            <label className="mb-1 block text-sm text-neutral-600">割引率（%）</label>
+            <input
+              name="monitorDiscountPercent"
+              type="number"
+              min={1}
+              max={99}
+              defaultValue={setting.monitorDiscountPercent ?? ""}
+              placeholder="例: 20"
+              className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-neutral-600">上限人数（支払い済み注文数）</label>
+            <input
+              name="monitorMaxOrders"
+              type="number"
+              min={1}
+              defaultValue={setting.monitorMaxOrders ?? ""}
+              placeholder="例: 30"
+              className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+            />
           </div>
           <button type="submit" className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white">
             保存する

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance, type ReorderDirection } from "./PartPlacer";
 import { computeCalibratedWidthPercent, FALLBACK_WIDTH_PERCENT } from "@/lib/sizing-constants";
 import { measureContentBox, containInSquare, type ContentBox } from "@/lib/measure-content-box";
+import { applyMonitorDiscount, type MonitorPriceState } from "@/lib/monitor-price-shared";
 
 type BasePhoto = {
   id: string;
@@ -45,10 +46,12 @@ export default function PartConfigurator({
   basePhotos,
   parts,
   basePriceJpy,
+  monitorPrice,
 }: {
   basePhotos: BasePhoto[];
   parts: Part[];
   basePriceJpy: number;
+  monitorPrice: MonitorPriceState;
 }) {
   const [basePhotoId, setBasePhotoId] = useState<string | null>(basePhotos[0]?.id ?? null);
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -172,10 +175,14 @@ export default function PartConfigurator({
     return map;
   }, [instances]);
 
-  const totalPriceJpy = useMemo(() => {
+  const subtotalPriceJpy = useMemo(() => {
     const addOn = instances.reduce((sum, instance) => sum + (partsById.get(instance.partId)?.addOnPriceJpy ?? 0), 0);
     return basePriceJpy + addOn;
   }, [instances, partsById, basePriceJpy]);
+
+  // 実際に請求される金額はチェックアウト時にサーバー側で再計算するので(クライアントの表示は
+  // 古い/改ざんされている可能性があるため信用しない)、ここでの計算は表示用の目安。
+  const totalPriceJpy = monitorPrice.active ? applyMonitorDiscount(subtotalPriceJpy, monitorPrice.discountPercent) : subtotalPriceJpy;
 
   const selectedInstances = useMemo<PlaceableInstance[]>(
     () =>
@@ -462,7 +469,17 @@ export default function PartConfigurator({
       </div>
 
       <div>
-        <p className="mb-4 text-lg font-semibold">合計 ¥{totalPriceJpy.toLocaleString()}</p>
+        {monitorPrice.active && (
+          <p className="mb-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            先着モニター価格 {monitorPrice.discountPercent}%オフ（残り{monitorPrice.remaining}名）
+          </p>
+        )}
+        <p className="mb-4 text-lg font-semibold">
+          合計 ¥{totalPriceJpy.toLocaleString()}
+          {monitorPrice.active && (
+            <span className="ml-2 text-sm font-normal text-neutral-400 line-through">¥{subtotalPriceJpy.toLocaleString()}</span>
+          )}
+        </p>
 
         {(categoryOptions.length > 0 || colorOptions.length > 0) && (
           <div className="mb-6 space-y-3">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
+import { getMonitorPriceState, applyMonitorDiscount } from "@/lib/monitor-price";
 
 export async function POST(req: NextRequest) {
   const { basePhotoId, partIds, compositeId } = await req.json();
@@ -52,7 +53,11 @@ export async function POST(req: NextRequest) {
     addOnPriceJpy: p.addOnPriceJpy,
     quantity: quantityByPartId.get(p.id) ?? 1,
   }));
-  const totalPriceJpy = basePriceJpy + partsSnapshot.reduce((sum, p) => sum + p.addOnPriceJpy * p.quantity, 0);
+  const subtotalJpy = basePriceJpy + partsSnapshot.reduce((sum, p) => sum + p.addOnPriceJpy * p.quantity, 0);
+  // クライアントが計算した金額は信用せず、ここで決済直前のモニター価格状態を見て再計算する
+  // (在庫/人数の競合やクライアント側の古い表示に関わらず、実際に請求される金額を正としたいため)。
+  const monitorState = await getMonitorPriceState();
+  const totalPriceJpy = monitorState.active ? applyMonitorDiscount(subtotalJpy, monitorState.discountPercent) : subtotalJpy;
 
   const pendingCheckout = await db.pendingCheckout.create({
     data: {

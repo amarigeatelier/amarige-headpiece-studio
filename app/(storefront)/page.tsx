@@ -1,13 +1,15 @@
 import { db } from "@/lib/db";
 import PartConfigurator from "@/components/PartConfigurator";
+import { getMonitorPriceState } from "@/lib/monitor-price";
 
 export const dynamic = "force-dynamic";
 
 export default async function StorefrontHomePage() {
-  const [basePhotos, parts, setting] = await Promise.all([
+  const [basePhotos, parts, setting, monitorPrice] = await Promise.all([
     db.modelBasePhoto.findMany({ where: { active: true }, orderBy: { createdAt: "asc" } }),
     db.part.findMany({ where: { status: "active" }, orderBy: { createdAt: "asc" } }),
     db.storeSetting.findUnique({ where: { id: 1 } }),
+    getMonitorPriceState(),
   ]);
 
   return (
@@ -45,6 +47,7 @@ export default async function StorefrontHomePage() {
           realWidthCm: p.liveRealWidthCm ?? p.realWidthCm,
         }))}
         basePriceJpy={setting?.basePriceJpy ?? 0}
+        monitorPrice={monitorPrice}
       />
     </div>
   );
