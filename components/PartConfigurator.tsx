@@ -295,11 +295,11 @@ export default function PartConfigurator({
       const body = await res.json();
       if (!res.ok) {
         if (body.limitReached) setLimitReached(true);
-        throw new Error(body.error ?? "プレビューの生成に失敗しました");
+        throw new Error(body.error ?? "確定に失敗しました");
       }
       setPreview({ compositeId: body.compositeId, imageUrl: body.imageUrl });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "プレビューの生成に失敗しました");
+      setError(err instanceof Error ? err.message : "確定に失敗しました");
     } finally {
       setGenerating(false);
     }
@@ -353,7 +353,7 @@ export default function PartConfigurator({
           <>
             <div className="w-full overflow-hidden rounded-lg bg-neutral-100" style={{ aspectRatio }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={preview.imageUrl} alt="生成されたプレビュー" className="h-full w-full object-cover" />
+              <img src={preview.imageUrl} alt="確定した仕上がり" className="h-full w-full object-cover" />
             </div>
             <button
               onClick={() => setPreview(null)}
@@ -399,7 +399,7 @@ export default function PartConfigurator({
 
         {!preview && selectedInstances.length > 0 && (
           <p className="mt-2 text-xs text-neutral-500">
-            パーツをドラッグして位置を調整できます（丸いつまみをドラッグすると向きも変えられます）。触らなければそのままの配置で生成されます。
+            パーツをドラッグして位置を調整できます（丸いつまみをドラッグすると向きも変えられます）。触らなければそのままの配置で確定されます。
           </p>
         )}
 
@@ -435,7 +435,7 @@ export default function PartConfigurator({
               placeholder="example@mail.com"
               className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
             />
-            <p className="mt-1 text-xs text-neutral-500">プレビュー生成のご連絡・見積もりのお問い合わせに使用します。</p>
+            <p className="mt-1 text-xs text-neutral-500">確定時のご連絡・見積もりのお問い合わせに使用します。</p>
           </div>
         )}
 
@@ -456,7 +456,7 @@ export default function PartConfigurator({
           disabled={!basePhotoId || instances.length === 0 || !isEmailValid || generating}
           className="mt-4 w-full rounded border border-neutral-900 py-2 text-sm font-medium text-neutral-900 disabled:opacity-40"
         >
-          {generating ? "生成中..." : "プレビューを生成する"}
+          {generating ? "確定中..." : "この内容で確定する"}
         </button>
 
         <button
