@@ -21,7 +21,7 @@ export default async function StorefrontHomePage() {
         髪に、あなただけの彩りを
       </p>
       <h1 className="mb-2 text-2xl font-semibold" style={{ fontFamily: '"Shippori Mincho", serif' }}>
-        好きなお花で、好きなだけ。わたしだけの髪飾りビュッフェ。
+        amarige* head parts studio
       </h1>
       <p className="mb-8 text-sm text-neutral-500">
         好きなパーツを選んで、その場で仕上がりを確認。ご購入後は、選んだパーツがそのままお手元に届きます。
