@@ -274,6 +274,16 @@ export default function PartConfigurator({
     setPreview(null);
   }
 
+  // 最初からやり直したい人向け。選んだパーツ・配置・確定した仕上がりをすべて消す
+  // (saki指摘:「全部消すってボタンが欲しい」)。角度の選択やメールアドレスは触らない。
+  function clearAll() {
+    setInstances([]);
+    setLayout([]);
+    setPreview(null);
+    setError(null);
+    setLimitReached(false);
+  }
+
   async function handleGeneratePreview() {
     if (!basePhotoId || instances.length === 0 || !isEmailValid) return;
     const basePhoto = basePhotos.find((b) => b.id === basePhotoId);
@@ -474,12 +484,19 @@ export default function PartConfigurator({
             先着モニター価格 {monitorPrice.discountPercent}%オフ（残り{monitorPrice.remaining}名）
           </p>
         )}
-        <p className="mb-4 text-lg font-semibold">
-          合計 ¥{totalPriceJpy.toLocaleString()}
-          {monitorPrice.active && (
-            <span className="ml-2 text-sm font-normal text-neutral-400 line-through">¥{subtotalPriceJpy.toLocaleString()}</span>
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-lg font-semibold">
+            合計 ¥{totalPriceJpy.toLocaleString()}
+            {monitorPrice.active && (
+              <span className="ml-2 text-sm font-normal text-neutral-400 line-through">¥{subtotalPriceJpy.toLocaleString()}</span>
+            )}
+          </p>
+          {instances.length > 0 && (
+            <button type="button" onClick={clearAll} className="text-xs text-neutral-500 underline">
+              すべて消す
+            </button>
           )}
-        </p>
+        </div>
 
         {(categoryOptions.length > 0 || colorOptions.length > 0) && (
           <div className="mb-6 space-y-3">
