@@ -493,7 +493,7 @@ export default function PartConfigurator({
           </p>
           {instances.length > 0 && (
             <button type="button" onClick={clearAll} className="text-xs text-neutral-500 underline">
-              すべて消す
+              はじめからやり直す
             </button>
           )}
         </div>
