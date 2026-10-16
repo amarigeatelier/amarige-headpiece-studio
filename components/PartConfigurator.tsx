@@ -37,7 +37,7 @@ const THUMBNAIL_MIN_SCALE_FRACTION = 0.3;
 // サイドにもお花をつける場合、後ろ姿の角度だけでは本数が足りているか確認できない(saki指摘)。
 // 購入前に毎回目に入るよう、角度選択の下に常時表示する(初回のみ表示だと見逃されるため)。
 const PART_COUNT_GUIDE = `◇パーツの本数目安◇
-・シニヨン・・・20本前後
+・シニヨン…20本前後
 ・編みおろし…25本前後`;
 
 function makeInstanceId(): string {
