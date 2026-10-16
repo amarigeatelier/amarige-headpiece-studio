@@ -35,8 +35,10 @@ const MAX_QUANTITY_PER_PART = 10;
 // 極端に小さいパーツが点のようになって見えなくなるのを防ぐため下限を設ける。
 const THUMBNAIL_MIN_SCALE_FRACTION = 0.3;
 // サイドにもお花をつける場合、後ろ姿の角度だけでは本数が足りているか確認できない(saki指摘)。
-// ベース写真が複数ある(=サイドなど別角度がある)時だけ、角度選択の下に一度だけ案内を出す。
-const SIDE_CHECK_HINT_STORAGE_KEY = "amarige_side_check_hint_shown";
+// 購入前に毎回目に入るよう、角度選択の下に常時表示する(初回のみ表示だと見逃されるため)。
+const PART_COUNT_GUIDE = `◇パーツの本数目安◇
+・シニヨン・・・20本前後
+・編みおろし…25本前後`;
 
 function makeInstanceId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
@@ -70,7 +72,6 @@ export default function PartConfigurator({
   // (実際に発生した不具合)。写真ごとに実寸の比率を読み取って枠に反映することで、どんな縦横比の
   // 写真でも(パーツの配置座標が枠基準のままでも)正しく収まるようにする。
   const [aspectRatio, setAspectRatio] = useState(3 / 4);
-  const [showSideCheckHint, setShowSideCheckHint] = useState(false);
   const [thumbBoxes, setThumbBoxes] = useState<Record<string, ContentBox | null>>({});
 
   // カタログのサムネイルも、配置画面(PartPlacer)と同じく余白を除いた実際の見た目で
@@ -88,17 +89,6 @@ export default function PartConfigurator({
       cancelled = true;
     };
   }, [parts, thumbBoxes]);
-
-  useEffect(() => {
-    if (basePhotos.length <= 1) return;
-    try {
-      if (localStorage.getItem(SIDE_CHECK_HINT_STORAGE_KEY) === "1") return;
-      localStorage.setItem(SIDE_CHECK_HINT_STORAGE_KEY, "1");
-    } catch {
-      return; // localStorageが使えない環境ではしつこく出さない
-    }
-    setShowSideCheckHint(true);
-  }, [basePhotos.length]);
 
   useEffect(() => {
     const base = basePhotos.find((b) => b.id === basePhotoId);
@@ -429,11 +419,9 @@ export default function PartConfigurator({
           </div>
         )}
 
-        {showSideCheckHint && (
-          <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            サイドにもお花をつける場合は、「サイド」など他の角度でも本数が足りているか確認してください。
-          </p>
-        )}
+        <p className="mt-2 whitespace-pre-line rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+          {PART_COUNT_GUIDE}
+        </p>
 
         {!preview && (
           <div className="mt-4">
