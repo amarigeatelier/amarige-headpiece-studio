@@ -464,6 +464,7 @@ export default function PartConfigurator({
         >
           {buying ? "手続き中..." : `購入する（¥${totalPriceJpy.toLocaleString()}）`}
         </button>
+        <p className="mt-2 text-xs text-neutral-500">受注生産のため、ご注文から1週間ほどでお届けします。</p>
       </div>
 
       <div>

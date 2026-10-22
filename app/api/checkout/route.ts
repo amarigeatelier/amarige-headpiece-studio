@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
       },
     ],
     shipping_address_collection: { allowed_countries: ["JP"] },
+    custom_text: { submit: { message: "受注生産のため、ご注文から1週間ほどでお届けします。" } },
     success_url: `${siteUrl}/checkout/success`,
     cancel_url: `${siteUrl}/checkout/cancel`,
     metadata: {
