@@ -107,7 +107,16 @@ export async function POST(req: NextRequest) {
         : []),
     ],
     shipping_address_collection: { allowed_countries: ["JP"] },
-    custom_text: { submit: { message: "受注生産のため、ご注文から1週間ほどでお届けします。" } },
+    custom_text: {
+      submit: { message: "受注生産のため、ご注文から1週間ほどでお届けします。" },
+      // 送料の加算はお届け先の地域(購入前の選択)で決まるため、住所の入力欄のそばで食い違いを防ぐ。
+      shipping_address: {
+        message:
+          shippingRegion === "remote"
+            ? "北海道・沖縄以外にお届けの場合は、ブラウザの「戻る」で前の画面に戻り、地域を選び直してください。"
+            : "お届け先が北海道・沖縄の場合は、ブラウザの「戻る」で前の画面に戻り、「北海道・沖縄」を選び直してください（送料が加算されます）。",
+      },
+    },
     success_url: `${siteUrl}/checkout/success`,
     cancel_url: `${siteUrl}/checkout/cancel`,
     metadata: {
