@@ -5,6 +5,7 @@ import PartPlacer, { defaultLayout, type PartLayout, type PlaceableInstance, typ
 import { computeCalibratedWidthPercent, FALLBACK_WIDTH_PERCENT } from "@/lib/sizing-constants";
 import { measureContentBox, containInSquare, type ContentBox } from "@/lib/measure-content-box";
 import { applyMonitorDiscount, type MonitorPriceState } from "@/lib/monitor-price-shared";
+import { shippingSurchargeJpy, type ShippingRegion } from "@/lib/shipping";
 
 type BasePhoto = {
   id: string;
@@ -67,6 +68,8 @@ export default function PartConfigurator({
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
   const [layout, setLayout] = useState<PartLayout[]>([]);
+  // 北海道・沖縄は送料を加算するため、購入前にお届け先の地域を選んでもらう(未選択のうちは購入不可)。
+  const [shippingRegion, setShippingRegion] = useState<ShippingRegion | null>(null);
   // ベース写真ごとの実際の縦横比。旧デザイン(縦長の頭の写真)を前提に固定で3:4にしていたが、
   // トレー写真のような横長の写真だとそのまま3:4の枠に詰め込まれて大きく切り取られてしまう
   // (実際に発生した不具合)。写真ごとに実寸の比率を読み取って枠に反映することで、どんな縦横比の
@@ -172,7 +175,9 @@ export default function PartConfigurator({
 
   // 実際に請求される金額はチェックアウト時にサーバー側で再計算するので(クライアントの表示は
   // 古い/改ざんされている可能性があるため信用しない)、ここでの計算は表示用の目安。
-  const totalPriceJpy = monitorPrice.active ? applyMonitorDiscount(subtotalPriceJpy, monitorPrice.discountPercent) : subtotalPriceJpy;
+  const surchargeJpy = shippingSurchargeJpy(shippingRegion);
+  const totalPriceJpy =
+    (monitorPrice.active ? applyMonitorDiscount(subtotalPriceJpy, monitorPrice.discountPercent) : subtotalPriceJpy) + surchargeJpy;
 
   const selectedInstances = useMemo<PlaceableInstance[]>(
     () =>
@@ -322,7 +327,7 @@ export default function PartConfigurator({
   }
 
   async function handleBuy() {
-    if (!basePhotoId || !preview) return;
+    if (!basePhotoId || !preview || !shippingRegion) return;
     setBuying(true);
     setError(null);
     try {
@@ -333,6 +338,7 @@ export default function PartConfigurator({
           basePhotoId,
           partIds: instances.map((i) => i.partId),
           compositeId: preview.compositeId,
+          shippingRegion,
         }),
       });
       const body = await res.json();
@@ -457,9 +463,31 @@ export default function PartConfigurator({
           {generating ? "確定中..." : "この内容で確定する"}
         </button>
 
+        <fieldset className="mt-4 rounded border border-neutral-200 px-3 py-2">
+          <legend className="px-1 text-xs text-neutral-500">お届け先の地域（送料は基本料金に含まれます）</legend>
+          <label className="flex items-center gap-2 py-1 text-sm">
+            <input
+              type="radio"
+              name="shippingRegion"
+              checked={shippingRegion === "main"}
+              onChange={() => setShippingRegion("main")}
+            />
+            本州・四国・九州
+          </label>
+          <label className="flex items-center gap-2 py-1 text-sm">
+            <input
+              type="radio"
+              name="shippingRegion"
+              checked={shippingRegion === "remote"}
+              onChange={() => setShippingRegion("remote")}
+            />
+            北海道・沖縄（＋¥500）
+          </label>
+        </fieldset>
+
         <button
           onClick={handleBuy}
-          disabled={!preview || buying}
+          disabled={!preview || !shippingRegion || buying}
           className="mt-2 w-full rounded bg-neutral-900 py-3 text-sm font-medium text-white disabled:opacity-40"
         >
           {buying ? "手続き中..." : `購入する（¥${totalPriceJpy.toLocaleString()}）`}
@@ -477,7 +505,7 @@ export default function PartConfigurator({
           <p className="text-lg font-semibold">
             合計 ¥{totalPriceJpy.toLocaleString()}
             {monitorPrice.active && (
-              <span className="ml-2 text-sm font-normal text-neutral-400 line-through">¥{subtotalPriceJpy.toLocaleString()}</span>
+              <span className="ml-2 text-sm font-normal text-neutral-400 line-through">¥{(subtotalPriceJpy + surchargeJpy).toLocaleString()}</span>
             )}
           </p>
           {instances.length > 0 && (

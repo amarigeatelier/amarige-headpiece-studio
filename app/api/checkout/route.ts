@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
 import { getMonitorPriceState, applyMonitorDiscount } from "@/lib/monitor-price";
+import { isShippingRegion, shippingSurchargeJpy } from "@/lib/shipping";
 
 export async function POST(req: NextRequest) {
-  const { basePhotoId, partIds, compositeId } = await req.json();
+  const { basePhotoId, partIds, compositeId, shippingRegion } = await req.json();
 
   if (
     typeof basePhotoId !== "string" ||
     !Array.isArray(partIds) ||
     partIds.length === 0 ||
     !partIds.every((id) => typeof id === "string") ||
-    typeof compositeId !== "string"
+    typeof compositeId !== "string" ||
+    !isShippingRegion(shippingRegion)
   ) {
     return NextResponse.json({ error: "不正なリクエストです" }, { status: 400 });
   }
@@ -57,7 +59,10 @@ export async function POST(req: NextRequest) {
   // クライアントが計算した金額は信用せず、ここで決済直前のモニター価格状態を見て再計算する
   // (在庫/人数の競合やクライアント側の古い表示に関わらず、実際に請求される金額を正としたいため)。
   const monitorState = await getMonitorPriceState();
-  const totalPriceJpy = monitorState.active ? applyMonitorDiscount(subtotalJpy, monitorState.discountPercent) : subtotalJpy;
+  const goodsPriceJpy = monitorState.active ? applyMonitorDiscount(subtotalJpy, monitorState.discountPercent) : subtotalJpy;
+  // 北海道・沖縄の送料加算はモニター割引の対象外(割引は商品代金のみ)。
+  const surchargeJpy = shippingSurchargeJpy(shippingRegion);
+  const totalPriceJpy = goodsPriceJpy + surchargeJpy;
 
   const pendingCheckout = await db.pendingCheckout.create({
     data: {
@@ -88,10 +93,18 @@ export async function POST(req: NextRequest) {
             name: productName,
             images: composite.imageUrl ? [composite.imageUrl] : undefined,
           },
-          unit_amount: totalPriceJpy,
+          unit_amount: goodsPriceJpy,
         },
         quantity: 1,
       },
+      ...(surchargeJpy > 0
+        ? [
+            {
+              price_data: { currency: "jpy", product_data: { name: "北海道・沖縄への送料加算" }, unit_amount: surchargeJpy },
+              quantity: 1,
+            },
+          ]
+        : []),
     ],
     shipping_address_collection: { allowed_countries: ["JP"] },
     custom_text: { submit: { message: "受注生産のため、ご注文から1週間ほどでお届けします。" } },
@@ -99,6 +112,7 @@ export async function POST(req: NextRequest) {
     cancel_url: `${siteUrl}/checkout/cancel`,
     metadata: {
       pendingCheckoutId: pendingCheckout.id,
+      shippingRegion,
     },
   });
 
